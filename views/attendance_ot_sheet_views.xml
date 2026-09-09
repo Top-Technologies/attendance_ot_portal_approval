@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- List View for Attendance OT Approval Sheet -->
+    <record id="view_attendance_ot_sheet_tree" model="ir.ui.view">
+        <field name="name">attendance.ot.approval.sheet.list</field>
+        <field name="model">attendance.ot.approval.sheet</field>
+        <field name="arch" type="xml">
+            <list string="Attendance OT &amp; Absent Approval Sheets" sample="1">
+                <field name="name" decoration-bf="1"/>
+                <field name="employee_id"/>
+                <field name="department_id" optional="show"/>
+                <field name="date_from"/>
+                <field name="date_to"/>
+                <field name="period_type" widget="badge"/>
+                <field name="total_raw_ot_hours" widget="float" string="Raw OT (hrs)"/>
+                <field name="total_ot_day_hours" widget="float" string="Day (1.5x)"/>
+                <field name="total_ot_night_hours" widget="float" string="Night (1.75x)"/>
+                <field name="total_ot_weekend_hours" widget="float" string="Weekend (2.0x)"/>
+                <field name="total_ot_holiday_hours" widget="float" string="Holiday (2.5x)"/>
+                <field name="total_approved_ot_hours" widget="float" decoration-success="total_approved_ot_hours &gt; 0" string="Total Approved OT"/>
+                <field name="total_approved_late_hours" widget="float" decoration-danger="total_approved_late_hours &gt; 0" string="Unapproved Late"/>
+                <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-warning="state == 'submitted'" decoration-success="state == 'approved'" decoration-danger="state == 'rejected'"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form View for Attendance OT Approval Sheet -->
+    <record id="view_attendance_ot_sheet_form" model="ir.ui.view">
+        <field name="name">attendance.ot.approval.sheet.form</field>
+        <field name="model">attendance.ot.approval.sheet</field>
+        <field name="arch" type="xml">
+            <form string="Attendance OT &amp; Absent Approval Sheet">
+                <header>
+                    <button name="action_fetch_attendance_records" string="Fetch / Refresh Records" type="object" class="oe_highlight" invisible="state not in ('draft', 'submitted')"/>
+                    <button name="action_submit" string="Submit for Approval" type="object" class="oe_highlight" invisible="state != 'draft'"/>
+                    <button name="action_approve" string="Approve Report &amp; Sync Contract" type="object" class="btn-success" invisible="state not in ('draft', 'submitted')"/>
+                    <button name="action_reject" string="Reject Report" type="object" class="btn-danger" invisible="state != 'submitted'"/>
+                    <button name="action_reopen" string="Reopen for Adjustment" type="object" class="btn-warning" invisible="state not in ('approved', 'rejected')"/>
+                    <button name="action_reset_draft" string="Reset to Draft" type="object" invisible="state == 'draft'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,submitted,approved,rejected"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name" string="Report Reference"/>
+                        <h1>
+                            <field name="name" placeholder="ATT-OT-2026-09-EMP001"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Employee &amp; Period Details">
+                            <field name="employee_id" options="{'no_create': True}" readonly="state != 'draft'"/>
+                            <field name="department_id"/>
+                            <field name="job_id"/>
+                            <field name="manager_id"/>
+                            <field name="contract_id"/>
+                        </group>
+                        <group string="Coverage Period">
+                            <field name="period_type" readonly="state in ('approved', 'rejected')"/>
+                            <field name="date_from" readonly="state in ('approved', 'rejected')"/>
+                            <field name="date_to" readonly="state in ('approved', 'rejected')"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                    </group>
+
+                    <!-- Overtime Factor Summary Banner -->
+                    <div class="row text-center mb-3">
+                        <div class="col-md-2">
+                            <div class="border rounded p-2 bg-light">
+                                <span class="text-muted d-block small">Day OT (1.5x)</span>
+                                <span class="fs-5 fw-bold text-primary">
+                                    <field name="total_ot_day_hours" widget="float"/> hrs
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="border rounded p-2 bg-light">
+                                <span class="text-muted d-block small">Night OT (1.75x)</span>
+                                <span class="fs-5 fw-bold text-info">
+                                    <field name="total_ot_night_hours" widget="float"/> hrs
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="border rounded p-2 bg-light">
+                                <span class="text-muted d-block small">Weekend OT (2.0x)</span>
+                                <span class="fs-5 fw-bold text-dark">
+                                    <field name="total_ot_weekend_hours" widget="float"/> hrs
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="border rounded p-2 bg-light">
+                                <span class="text-muted d-block small">Holiday OT (2.5x)</span>
+                                <span class="fs-5 fw-bold text-danger">
+                                    <field name="total_ot_holiday_hours" widget="float"/> hrs
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="border rounded p-2 bg-light border-success">
+                                <span class="text-muted d-block small">Total Approved OT</span>
+                                <span class="fs-4 fw-bold text-success">
+                                    <field name="total_approved_ot_hours" widget="float"/> hrs
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="border rounded p-2 bg-light border-danger">
+                                <span class="text-muted d-block small">Unapproved Late</span>
+                                <span class="fs-5 fw-bold text-danger">
+                                    <field name="total_approved_late_hours" widget="float"/> hrs
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <notebook>
+                        <page string="Daily Attendance Breakdowns" name="daily_lines">
+                            <field name="line_ids">
+                                <list string="Daily Attendance Lines" editable="bottom">
+                                    <field name="date"/>
+                                    <field name="day_name"/>
+                                    <field name="status" widget="badge" decoration-success="status == 'present'" decoration-danger="status == 'absent'" decoration-warning="status == 'missed_punch'" decoration-info="status == 'on_leave'"/>
+                                    <field name="first_checkin" widget="datetime" optional="show"/>
+                                    <field name="last_checkout" widget="datetime" optional="show"/>
+                                    <field name="worked_hours" widget="float"/>
+                                    <field name="raw_ot_hours" widget="float" string="Raw OT"/>
+                                    <field name="is_ot_acceptable" widget="boolean_toggle"/>
+                                    <field name="ot_category" string="OT Category"/>
+                                    <field name="approved_ot_day_hours" widget="float" string="Day (1.5)"/>
+                                    <field name="approved_ot_night_hours" widget="float" string="Night (1.75)"/>
+                                    <field name="approved_ot_weekend_hours" widget="float" string="Weekend (2)"/>
+                                    <field name="approved_ot_holiday_hours" widget="float" string="Holiday (2.5)"/>
+                                    <field name="approved_ot_hours" widget="float" string="Total Approved OT" readonly="1"/>
+                                    <field name="raw_late_minutes" string="Late (mins)"/>
+                                    <field name="is_absent_excused" widget="boolean_toggle" string="Excused (Waived)?"/>
+                                    <field name="approved_late_hours" widget="float" string="Deduction (hrs)"/>
+                                    <field name="notes" placeholder="Manager comments..."/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Approval Audit &amp; Rejection Reason" name="audit">
+                            <group>
+                                <group string="Approval Details">
+                                    <field name="approved_by_id"/>
+                                    <field name="approval_date"/>
+                                </group>
+                                <group string="Rejection Info">
+                                    <field name="rejection_reason" placeholder="State reason if report was rejected..."/>
+                                </group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_attendance_ot_sheet_search" model="ir.ui.view">
+        <field name="name">attendance.ot.approval.sheet.search</field>
+        <field name="model">attendance.ot.approval.sheet</field>
+        <field name="arch" type="xml">
+            <search string="Search Attendance OT Sheets">
+                <field name="name"/>
+                <field name="employee_id"/>
+                <field name="department_id"/>
+                <field name="manager_id"/>
+                <filter string="Draft" name="draft" domain="[('state', '=', 'draft')]"/>
+                <filter string="Pending Approval" name="submitted" domain="[('state', '=', 'submitted')]"/>
+                <filter string="Approved" name="approved" domain="[('state', '=', 'approved')]"/>
+                <filter string="Rejected" name="rejected" domain="[('state', '=', 'rejected')]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Employee" name="group_employee" context="{'group_by': 'employee_id'}"/>
+                    <filter string="Department" name="group_department" context="{'group_by': 'department_id'}"/>
+                    <filter string="Manager" name="group_manager" context="{'group_by': 'manager_id'}"/>
+                    <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
+                    <filter string="Period Type" name="group_period_type" context="{'group_by': 'period_type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_attendance_ot_sheet" model="ir.actions.act_window">
+        <field name="name">Attendance OT &amp; Absent Approval Sheets</field>
+        <field name="res_model">attendance.ot.approval.sheet</field>
+        <field name="view_mode">list,form,kanban</field>
+        <field name="search_view_id" ref="view_attendance_ot_sheet_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create or generate the first Attendance OT &amp; Absent Approval Sheet!
+            </p>
+            <p>
+                Aggregate daily biometric attendance records, review raw overtime and late hours, adjust approved metrics across all 4 overtime categories (1.5x, 1.75x, 2.0x, 2.5x), and sync seamlessly with employee payroll contracts.
+            </p>
+        </field>
+    </record>
+</odoo>
