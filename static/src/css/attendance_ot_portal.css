@@ -1,0 +1,32 @@
+/* Attendance OT & Absent Portal Exposure Stylesheet */
+
+.o_portal_my_doc_table th {
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.table input[type="number"] {
+    border-radius: 4px;
+    border: 1px solid #ced4da;
+    padding: 0.2rem 0.4rem;
+}
+
+.table input[type="checkbox"] {
+    width: 1.2rem;
+    height: 1.2rem;
+    cursor: pointer;
+}
+
+.bg-light border-success {
+    border-left: 4px solid #198754 !important;
+}
+
+.bg-light border-danger {
+    border-left: 4px solid #dc3545 !important;
+}
+
+.bg-light border-warning {
+    border-left: 4px solid #ffc107 !important;
+}
