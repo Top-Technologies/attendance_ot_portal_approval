@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_attendance_ot_approval_sheet_user,attendance.ot.approval.sheet.user,model_attendance_ot_approval_sheet,base.group_user,1,1,1,1
+access_attendance_ot_approval_sheet_portal,attendance.ot.approval.sheet.portal,model_attendance_ot_approval_sheet,base.group_portal,1,1,0,0
+access_attendance_ot_approval_line_user,attendance.ot.approval.line.user,model_attendance_ot_approval_line,base.group_user,1,1,1,1
+access_attendance_ot_approval_line_portal,attendance.ot.approval.line.portal,model_attendance_ot_approval_line,base.group_portal,1,1,0,0
