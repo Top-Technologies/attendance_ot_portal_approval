@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="hr_contract_view_form_attendance_ot_inherit" model="ir.ui.view">
+        <field name="name">hr.contract.form.attendance.ot.inherit</field>
+        <field name="model">hr.contract</field>
+        <field name="inherit_id" ref="hr_contract.hr_contract_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Attendance &amp; OT Summary" name="attendance_ot_summary">
+                    <!-- Hidden Category Rate Fields (Preserved for Python calculation access) -->
+                    <field name="ot_day_rate" invisible="1"/>
+                    <field name="ot_night_rate" invisible="1"/>
+                    <field name="ot_weekend_rate" invisible="1"/>
+                    <field name="ot_holiday_rate" invisible="1"/>
+                    <field name="absent_hourly_rate" invisible="1"/>
+                    <field name="total_ot_day_amount" invisible="1"/>
+                    <field name="total_ot_night_amount" invisible="1"/>
+                    <field name="total_ot_weekend_amount" invisible="1"/>
+                    <field name="total_ot_holiday_amount" invisible="1"/>
+
+                    <!-- Main Two-Column Clean Form Layout -->
+                    <group>
+                        <!-- Left Column: Overtime Breakdown -->
+                        <group string="Overtime Hours Breakdown">
+                            <field name="ot_day_hours" string="Day Work (1.5x)"/>
+                            <field name="ot_night_hours" string="Night Shift (1.75x)"/>
+                            <field name="ot_weekend_hours" string="Weekend Rest (2.0x)"/>
+                            <field name="ot_holiday_hours" string="Public Holiday (2.5x)"/>
+                            <field name="approved_ot_hours" string="Total Approved OT" decoration-bf="1" decoration-success="approved_ot_hours &gt; 0"/>
+                        </group>
+                        <!-- Right Column: Absent Deductions -->
+                        <group string="Absent &amp; Late Deductions">
+                            <field name="approved_absent_hours" string="Absent Deduction Hours" decoration-bf="1" decoration-danger="approved_absent_hours &gt; 0"/>
+                            <field name="approved_absent_days" string="Absent Deduction Days"/>
+                        </group>
+                    </group>
+
+                    <group>
+                        <!-- Left Column: Rate & Working Hours Basis -->
+                        <group string="Working Basis &amp; Rate">
+                            <field name="monthly_working_hours" string="Monthly Working Hours" readonly="1" groups="!base.group_system"/>
+                            <field name="monthly_working_hours" string="Monthly Working Hours" groups="base.group_system"/>
+                            <field name="base_hourly_rate" string="Base Hourly Rate" decoration-bf="1" decoration-info="base_hourly_rate &gt; 0"/>
+                        </group>
+                        <!-- Right Column: Calculated Monthly Totals -->
+                        <group string="Calculated Monthly Totals">
+                            <field name="total_ot_amount" string="Total Overtime Payment" decoration-bf="1" decoration-success="total_ot_amount &gt; 0"/>
+                            <field name="absent_deduction_amount" string="Total Absent Deduction" decoration-bf="1" decoration-danger="absent_deduction_amount &gt; 0"/>
+                        </group>
+                    </group>
+
+                    <!-- Linked Approved Sheets -->
+                    <group string="Linked Approved Attendance &amp; OT Sheets">
+                        <field name="attendance_ot_sheet_ids" readonly="1" nolabel="1">
+                            <list string="Approved Attendance Sheets" decoration-success="state == 'approved'">
+                                <field name="name"/>
+                                <field name="date_from"/>
+                                <field name="date_to"/>
+                                <field name="period_type" widget="badge"/>
+                                <field name="total_ot_day_hours" string="Day (1.5x)"/>
+                                <field name="total_ot_night_hours" string="Night (1.75x)"/>
+                                <field name="total_ot_weekend_hours" string="Weekend (2.0x)"/>
+                                <field name="total_ot_holiday_hours" string="Holiday (2.5x)"/>
+                                <field name="total_approved_ot_hours" string="Total OT" decoration-bf="1"/>
+                                <field name="total_approved_late_hours" string="Late / Absent" decoration-danger="total_approved_late_hours &gt; 0"/>
+                                <field name="approval_date"/>
+                                <field name="approved_by_id"/>
+                                <field name="state" widget="badge" decoration-success="state == 'approved'"/>
+                            </list>
+                        </field>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>
