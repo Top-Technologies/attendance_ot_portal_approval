@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_employee_form_attendance_ot_inherit" model="ir.ui.view">
+        <field name="name">hr.employee.form.attendance.ot.inherit</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_attendance_ot_sheets" type="object" class="oe_stat_button" icon="fa-clock-o">
+                    <field name="attendance_ot_sheet_count" widget="statinfo" string="OT Sheets"/>
+                </button>
+            </xpath>
+
+            <xpath expr="//field[@name='parent_id']" position="after">
+                <field name="is_portal_attendance_manager" widget="boolean_toggle"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
