@@ -1,0 +1,678 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Approval Alert Banner on Portal Home -->
+    <template id="portal_my_home_approval_alerts_attendance_ot" name="Portal My Home : Attendance OT Approval Alert" inherit_id="portal.portal_my_home" priority="15">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="before">
+            <t t-if="attendance_ot_to_approve_count and attendance_ot_to_approve_count &gt; 0">
+                <div class="alert alert-warning border-warning d-flex flex-column flex-md-row align-items-md-center justify-content-between p-3 rounded-3 shadow-sm mb-4">
+                    <div class="d-flex align-items-center gap-3 mb-2 mb-md-0">
+                        <div class="bg-warning text-dark rounded-circle p-2 d-flex align-items-center justify-content-center flex-shrink-0" style="width: 44px; height: 44px;">
+                            <i class="fa fa-clock-o fa-lg"/>
+                        </div>
+                        <div>
+                            <h6 class="mb-0 fw-bold text-dark">
+                                <span class="badge bg-danger me-2">Action Required</span>
+                                You have <t t-esc="attendance_ot_to_approve_count"/> Attendance &amp; OT report<t t-if="attendance_ot_to_approve_count &gt; 1">s</t> awaiting your approval!
+                            </h6>
+                            <div class="text-muted small">
+                                Subordinate employees under your supervision have submitted attendance &amp; OT reports.
+                            </div>
+                        </div>
+                    </div>
+                    <a href="/my/attendance_ot/to_approve" class="btn btn-warning fw-bold px-3 py-2 text-nowrap shadow-sm">
+                        <i class="fa fa-check-circle me-1"/> Review Team Approvals &#8594;
+                    </a>
+                </div>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- Portal Home Cards -->
+    <template id="portal_my_home_attendance_ot" inherit_id="portal.portal_my_home" priority="25">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="icon" t-value="'/time_off_portal_exposure/static/src/img/calendar.svg'"/>
+                <t t-set="title">My Attendance &amp; OT Reports</t>
+                <t t-set="text">Review your attendance records, OT, and deductions</t>
+                <t t-set="url" t-value="'/my/attendance_ot'"/>
+                <t t-set="count" t-value="attendance_ot_count"/>
+                <t t-set="config_card" t-value="True"/>
+            </t>
+            <t t-if="is_attendance_ot_manager or (attendance_ot_to_approve_count is not None and attendance_ot_to_approve_count &gt; 0)">
+                <t t-call="portal.portal_docs_entry">
+                    <t t-set="icon" t-value="'/time_off_portal_exposure/static/src/img/check-circle.svg'"/>
+                    <t t-set="title">Team Approvals</t>
+                    <t t-set="text">Review &amp; approve team member OT and absence hours</t>
+                    <t t-set="url" t-value="'/my/attendance_ot/to_approve'"/>
+                    <t t-set="count" t-value="attendance_ot_to_approve_count"/>
+                    <t t-set="config_card" t-value="True"/>
+                </t>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- Breadcrumbs -->
+    <template id="portal_breadcrumbs_attendance_ot" inherit_id="portal.portal_breadcrumbs">
+        <xpath expr="//ol[hasclass('o_portal_submenu')]" position="inside">
+            <li t-if="page_name in ['attendance_ot_dashboard', 'attendance_ot_detail', 'attendance_ot_to_approve']" t-attf-class="breadcrumb-item #{'active' if page_name == 'attendance_ot_dashboard' else ''}">
+                <a t-if="page_name != 'attendance_ot_dashboard'" href="/my/attendance_ot">Attendance OT &amp; Absent</a>
+                <t t-else="">Attendance OT &amp; Absent</t>
+            </li>
+            <li t-if="page_name == 'attendance_ot_to_approve'" class="breadcrumb-item active">
+                Team Approvals
+            </li>
+            <li t-if="page_name == 'attendance_ot_detail'" class="breadcrumb-item active">
+                <t t-out="sheet.name"/>
+            </li>
+        </xpath>
+    </template>
+
+    <!-- My Attendance OT Dashboard -->
+    <template id="portal_my_attendance_ot_dashboard" name="My Attendance OT &amp; Absent Dashboard">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="True"/>
+
+            <div class="container py-3">
+                <div class="card border-0 shadow-sm rounded-3">
+                    <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0 text-primary fw-bold">
+                            <i class="fa fa-clock-o me-2"/>My Attendance OT &amp; Absent Reports
+                        </h4>
+                        <t t-if="is_manager">
+                            <a href="/my/attendance_ot/to_approve" class="btn btn-outline-primary btn-sm">
+                                <i class="fa fa-users me-1"/>Team Approvals
+                            </a>
+                        </t>
+                    </div>
+
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-12 d-flex justify-content-end gap-2">
+                                <div class="btn-group">
+                                    <button type="button" class="btn btn-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                                        Filter: <t t-out="filters[filterby]['label']"/>
+                                    </button>
+                                    <div class="dropdown-menu dropdown-menu-end">
+                                        <t t-foreach="filters" t-as="f">
+                                            <a t-attf-href="/my/attendance_ot?sortby=#{sortby}&amp;filterby=#{f}"
+                                               t-attf-class="dropdown-item #{'active' if filterby == f else ''}">
+                                                <t t-out="filters[f]['label']"/>
+                                            </a>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <t t-if="not sheets">
+                            <div class="alert alert-info text-center my-4" role="alert">
+                                <i class="fa fa-info-circle me-2"/>No attendance OT reports found.
+                            </div>
+                        </t>
+                        <t t-else="">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle o_portal_my_doc_table">
+                                    <thead>
+                                        <tr class="table-light">
+                                            <th>Report Reference</th>
+                                            <th>Period</th>
+                                            <th class="text-center">Type</th>
+                                            <th class="text-center">Raw OT</th>
+                                            <th class="text-center">Approved OT</th>
+                                            <th class="text-center">Unapproved Late</th>
+                                            <th class="text-center">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <t t-foreach="sheets" t-as="s">
+                                            <tr>
+                                                <td>
+                                                    <a t-attf-href="/my/attendance_ot/#{s.id}" class="fw-bold text-decoration-none">
+                                                        <t t-out="s.name"/>
+                                                    </a>
+                                                </td>
+                                                <td><t t-out="s.date_from"/> to <t t-out="s.date_to"/></td>
+                                                <td class="text-center"><span class="badge bg-secondary text-capitalize"><t t-out="s.period_type"/></span></td>
+                                                <td class="text-center font-monospace"><t t-out="s.total_raw_ot_hours"/> hrs</td>
+                                                <td class="text-center font-monospace text-success fw-bold"><t t-out="s.total_approved_ot_hours"/> hrs</td>
+                                                <td class="text-center font-monospace text-danger fw-bold"><t t-out="s.total_approved_late_hours"/> hrs</td>
+                                                <td class="text-center">
+                                                    <span t-if="s.state == 'draft'" class="badge bg-secondary">Draft</span>
+                                                    <span t-if="s.state == 'submitted'" class="badge bg-warning text-dark">Pending Approval</span>
+                                                    <span t-if="s.state == 'approved'" class="badge bg-success">Approved</span>
+                                                    <span t-if="s.state == 'rejected'" class="badge bg-danger">Rejected</span>
+                                                </td>
+                                            </tr>
+                                        </t>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- Subordinate Attendance OT Sheets & Employees List (Team Approvals View) -->
+    <template id="portal_my_attendance_ot_to_approve" name="Team Attendance OT to Approve">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="True"/>
+
+            <div class="container py-3">
+                <!-- Header -->
+                <div class="card border-0 shadow-sm rounded-3 mb-4">
+                    <div class="card-header bg-primary text-white py-3 d-flex justify-content-between align-items-center rounded-top">
+                        <div>
+                            <h4 class="mb-0 text-white fw-bold">
+                                <i class="fa fa-users me-2"/>Team Attendance &amp; OT Approvals
+                            </h4>
+                            <small class="text-white-50">Manage overtime &amp; attendance approvals for employees under your supervision</small>
+                        </div>
+                        <span class="badge bg-light text-primary fs-6 px-3 py-2 fw-bold">
+                            <t t-out="pending_approval_count"/> Pending Approvals
+                        </span>
+                    </div>
+
+                    <div class="card-body">
+                        <!-- Payroll Cycle & Date Range Selector -->
+                        <div class="card bg-light border-0 shadow-sm rounded-3 p-3 mb-4">
+                            <form method="GET" action="/my/attendance_ot/to_approve" class="row g-2 align-items-center">
+                                <input type="hidden" name="filterby" t-att-value="filterby"/>
+                                <input type="hidden" name="sortby" t-att-value="sortby"/>
+                                <t t-if="selected_employee_id">
+                                    <input type="hidden" name="employee_id" t-att-value="selected_employee_id"/>
+                                </t>
+                                
+                                <div class="col-12 col-lg-auto d-flex align-items-center gap-2">
+                                    <span class="badge bg-primary px-2 py-1"><i class="fa fa-calendar me-1"/> Payroll Period</span>
+                                    <strong class="text-dark small">Salary Calculation Dates:</strong>
+                                </div>
+                                <div class="col-6 col-lg-auto d-flex align-items-center gap-1">
+                                    <label class="form-label small mb-0 text-muted">From:</label>
+                                    <input type="date" id="approval_date_from" name="date_from" t-att-value="date_from" class="form-control form-control-sm shadow-none" style="width: 140px;" required="required"/>
+                                </div>
+                                <div class="col-6 col-lg-auto d-flex align-items-center gap-1">
+                                    <label class="form-label small mb-0 text-muted">To:</label>
+                                    <input type="date" id="approval_date_to" name="date_to" t-att-value="date_to" class="form-control form-control-sm shadow-none" style="width: 140px;" required="required"/>
+                                </div>
+                                <div class="col-12 col-lg-auto d-flex gap-2 align-items-center">
+                                    <button type="submit" class="btn btn-primary btn-sm fw-bold px-3">
+                                        <i class="fa fa-filter me-1"/> Apply &amp; Load Sheets
+                                    </button>
+                                </div>
+                                <div class="col-12 col-lg-auto ms-lg-auto d-flex flex-wrap gap-1 align-items-center">
+                                    <span class="text-muted small me-1">Presets:</span>
+                                    <a t-attf-href="/my/attendance_ot/to_approve?date_from=#{presets['cycle_from']}&amp;date_to=#{presets['cycle_to']}&amp;filterby=#{filterby}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
+                                       t-attf-class="btn btn-sm #{'btn-primary active fw-bold text-white' if date_from == presets['cycle_from'] and date_to == presets['cycle_to'] else 'btn-outline-secondary bg-white'}">
+                                        Payroll Cycle (<t t-esc="presets['cycle_from'][5:]"/> to <t t-esc="presets['cycle_to'][5:]"/>)
+                                    </a>
+                                    <a t-attf-href="/my/attendance_ot/to_approve?date_from=#{presets['cal_month_from']}&amp;date_to=#{presets['cal_month_to']}&amp;filterby=#{filterby}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
+                                       t-attf-class="btn btn-sm #{'btn-primary active fw-bold text-white' if date_from == presets['cal_month_from'] and date_to == presets['cal_month_to'] else 'btn-outline-secondary bg-white'}">
+                                        Calendar Month
+                                    </a>
+                                    <a t-attf-href="/my/attendance_ot/to_approve?date_from=#{presets['prev_month_from']}&amp;date_to=#{presets['prev_month_to']}&amp;filterby=#{filterby}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
+                                       t-attf-class="btn btn-sm #{'btn-primary active fw-bold text-white' if date_from == presets['prev_month_from'] and date_to == presets['prev_month_to'] else 'btn-outline-secondary bg-white'}">
+                                        Prev Month
+                                    </a>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Subordinate Employees Grid -->
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="fw-bold text-secondary mb-0">
+                                    <i class="fa fa-user-circle-o me-2"/>Employees Under My Supervision (<t t-out="len(subordinate_stats or [])"/>)
+                                </h5>
+                                <span class="text-muted small">
+                                    Active Period: <strong><t t-out="date_from"/></strong> to <strong><t t-out="date_to"/></strong>
+                                </span>
+                            </div>
+                            <div class="row g-3">
+                                <!-- Filter All Button -->
+                                <div class="col-md-3 col-sm-6">
+                                    <a t-attf-href="/my/attendance_ot/to_approve?filterby=#{filterby}&amp;date_from=#{date_from}&amp;date_to=#{date_to}"
+                                       t-attf-class="card h-100 text-decoration-none border #{'border-primary bg-primary-subtle' if not selected_employee_id else 'border-light bg-light'} p-3 rounded-3 transition-all shadow-sm">
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="bg-primary text-white rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 42px; height: 42px;">
+                                                <i class="fa fa-users fa-lg"/>
+                                            </div>
+                                            <div>
+                                                <div class="fw-bold text-dark">All Subordinates</div>
+                                                <small class="text-muted"><t t-out="len(subordinate_stats or [])"/> Team Members</small>
+                                            </div>
+                                        </div>
+                                    </a>
+                                </div>
+
+                                <t t-foreach="subordinate_stats or []" t-as="sub">
+                                    <div class="col-md-3 col-sm-6">
+                                        <a t-attf-href="/my/attendance_ot/to_approve?employee_id=#{sub['id']}&amp;filterby=#{filterby}&amp;date_from=#{date_from}&amp;date_to=#{date_to}"
+                                           t-attf-class="card h-100 text-decoration-none border #{'border-primary bg-primary-subtle shadow' if selected_employee_id == sub['id'] else 'border-light bg-white'} p-3 rounded-3 shadow-sm hover-shadow">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <img t-attf-src="/web/image/hr.employee/#{sub['id']}/avatar_128"
+                                                         class="rounded-circle border border-2 border-primary" style="width: 38px; height: 38px; object-fit: cover;"
+                                                         onerror="this.src='/web/static/img/placeholder.png'"/>
+                                                    <div>
+                                                        <div class="fw-bold text-dark text-truncate" style="max-width: 130px;" t-out="sub['name']"/>
+                                                        <small class="text-muted d-block small"><t t-out="sub['department']"/></small>
+                                                    </div>
+                                                </div>
+                                                <t t-if="sub['pending_count'] &gt; 0">
+                                                    <span class="badge bg-danger rounded-pill"><t t-out="sub['pending_count']"/> Pending</span>
+                                                </t>
+                                            </div>
+                                            <div class="d-flex justify-content-between align-items-center small text-muted pt-2 border-top">
+                                                <span>Code: <strong><t t-out="sub['code']"/></strong></span>
+                                                <t t-if="sub['approved_ot'] &gt; 0">
+                                                    <span class="text-success fw-bold" title="Approved Overtime"><t t-out="sub['approved_ot']"/> hrs OT</span>
+                                                </t>
+                                                <t t-elif="sub['raw_ot'] &gt; 0">
+                                                    <span class="text-primary fw-bold" title="Recorded Overtime"><t t-out="sub['raw_ot']"/> hrs OT</span>
+                                                </t>
+                                                <t t-else="">
+                                                    <span class="text-muted">0 hrs OT</span>
+                                                </t>
+                                            </div>
+                                        </a>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+
+                        <hr class="my-4"/>
+
+                        <!-- Reports Filter & Table Header -->
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="fw-bold text-secondary mb-0">
+                                <i class="fa fa-list-alt me-2"/>Attendance &amp; OT Reports List
+                            </h5>
+                            <div class="btn-group">
+                                <button type="button" class="btn btn-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                                    Filter: <t t-out="filters[filterby]['label']"/>
+                                </button>
+                                <div class="dropdown-menu dropdown-menu-end">
+                                    <t t-foreach="filters" t-as="f">
+                                        <a t-attf-href="/my/attendance_ot/to_approve?sortby=#{sortby}&amp;filterby=#{f}&amp;date_from=#{date_from}&amp;date_to=#{date_to}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
+                                           t-attf-class="dropdown-item #{'active' if filterby == f else ''}">
+                                            <t t-out="filters[f]['label']"/>
+                                        </a>
+                                    </t>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Reports Table -->
+                        <t t-if="not sheets">
+                            <div class="alert alert-info text-center my-4" role="alert">
+                                <i class="fa fa-info-circle me-2"/>No subordinate attendance OT sheets requiring your review.
+                            </div>
+                        </t>
+                        <t t-else="">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle">
+                                    <thead>
+                                        <tr class="table-light">
+                                            <th>Employee</th>
+                                            <th>Report Reference</th>
+                                            <th>Period</th>
+                                            <th class="text-center">Raw OT</th>
+                                            <th class="text-center">Approved OT</th>
+                                            <th class="text-center">Unapproved Late</th>
+                                            <th class="text-center">Status</th>
+                                            <th class="text-end">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <t t-foreach="sheets" t-as="s">
+                                            <tr>
+                                                <td class="fw-bold">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <img t-attf-src="/web/image/hr.employee/#{s.employee_id.id}/avatar_128"
+                                                             class="rounded-circle" style="width: 28px; height: 28px; object-fit: cover;"
+                                                             onerror="this.src='/web/static/img/placeholder.png'"/>
+                                                        <t t-out="s.employee_id.name"/>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <a t-attf-href="/my/attendance_ot/#{s.id}" class="text-decoration-none fw-bold">
+                                                        <t t-out="s.name"/>
+                                                    </a>
+                                                </td>
+                                                <td class="text-nowrap"><span class="badge bg-light text-dark border px-2 py-1"><i class="fa fa-calendar me-1"/> <t t-out="s.date_from"/> to <t t-out="s.date_to"/></span></td>
+                                                <td class="text-center font-monospace"><t t-out="s.total_raw_ot_hours"/> hrs</td>
+                                                <td class="text-center font-monospace text-success fw-bold"><t t-out="s.total_approved_ot_hours"/> hrs</td>
+                                                <td class="text-center font-monospace text-danger fw-bold"><t t-out="s.total_approved_late_hours"/> hrs</td>
+                                                <td class="text-center">
+                                                    <span t-if="s.state == 'submitted'" class="badge bg-warning text-dark">Pending</span>
+                                                    <span t-if="s.state == 'approved'" class="badge bg-success">Approved</span>
+                                                    <span t-if="s.state == 'rejected'" class="badge bg-danger">Rejected</span>
+                                                </td>
+                                                <td class="text-end">
+                                                    <a t-attf-href="/my/attendance_ot/#{s.id}" class="btn btn-primary btn-sm">
+                                                        <i class="fa fa-pencil me-1"/>Review &amp; Approve
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        </t>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- Single Sheet View & Interactive Manager Approval Page -->
+    <template id="portal_my_attendance_ot_detail" name="Attendance OT Sheet Detail">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="True"/>
+
+            <div class="container py-3">
+                <div class="card border-0 shadow-sm rounded-3">
+                    <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                        <div>
+                            <h3 class="mb-0 text-primary fw-bold">
+                                <t t-out="sheet.name"/>
+                            </h3>
+                            <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                                <span class="badge bg-light text-dark border"><i class="fa fa-user me-1"/> <t t-out="sheet.employee_id.name"/></span>
+                                <span class="badge bg-primary-subtle text-primary border border-primary"><i class="fa fa-calendar me-1"/> Period: <t t-out="sheet.date_from"/> to <t t-out="sheet.date_to"/></span>
+                                <span class="badge bg-secondary text-capitalize"><t t-out="sheet.period_type"/></span>
+                                <t t-if="is_manager and sheet.state in ['draft', 'submitted']">
+                                    <button class="btn btn-outline-secondary btn-sm py-0 px-2" type="button" data-bs-toggle="collapse" data-bs-target="#changePeriodCollapse" aria-expanded="false">
+                                        <i class="fa fa-pencil me-1"/> Change Range
+                                    </button>
+                                </t>
+                            </div>
+                        </div>
+                        <div>
+                            <span t-if="sheet.state == 'draft'" class="badge bg-secondary fs-6">Draft</span>
+                            <span t-if="sheet.state == 'submitted'" class="badge bg-warning text-dark fs-6">Pending Manager Approval</span>
+                            <span t-if="sheet.state == 'approved'" class="badge bg-success fs-6"><i class="fa fa-check me-1"/>Approved</span>
+                            <span t-if="sheet.state == 'rejected'" class="badge bg-danger fs-6">Rejected</span>
+                            <form t-if="is_manager and sheet.state in ['approved', 'rejected']" t-attf-action="/my/attendance_ot/#{sheet.id}/reopen" method="POST" class="d-inline ms-2">
+                                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                <button type="submit" class="btn btn-outline-warning btn-sm" title="Reopen sheet for adjustments">
+                                    <i class="fa fa-pencil me-1"/>Reopen for Adjustment
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Change Period Collapsible Form -->
+                    <div t-if="is_manager and sheet.state in ['draft', 'submitted']" class="collapse bg-light border-bottom p-3" id="changePeriodCollapse">
+                        <form t-attf-action="/my/attendance_ot/#{sheet.id}/update_period" method="POST" class="row g-2 align-items-center">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                            <div class="col-auto">
+                                <strong class="small text-muted"><i class="fa fa-calendar-o me-1"/> Adjust Sheet Coverage Range:</strong>
+                            </div>
+                            <div class="col-auto d-flex align-items-center gap-1">
+                                <label class="small text-muted mb-0">From:</label>
+                                <input type="date" name="date_from" t-att-value="sheet.date_from" class="form-control form-control-sm" required="required"/>
+                            </div>
+                            <div class="col-auto d-flex align-items-center gap-1">
+                                <label class="small text-muted mb-0">To:</label>
+                                <input type="date" name="date_to" t-att-value="sheet.date_to" class="form-control form-control-sm" required="required"/>
+                            </div>
+                            <div class="col-auto">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    <i class="fa fa-refresh me-1"/> Update Range &amp; Refresh Lines
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="card-body">
+                        <!-- Notifications -->
+                        <div t-if="request.params.get('period_updated')" class="alert alert-info alert-dismissible fade show" role="alert">
+                            <i class="fa fa-calendar-check-o me-2 fs-5"/><strong>Coverage Period Updated!</strong> Daily attendance lines have been synchronized to the new date range.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                        <div t-if="reopened" class="alert alert-warning alert-dismissible fade show" role="alert">
+                            <i class="fa fa-pencil-square-o me-2 fs-5"/><strong>Sheet Reopened!</strong> The daily attendance lines are now unlocked below. Check the <strong>OT OK?</strong> boxes, set categories/hours, and click <strong>Approve Report &amp; Update Contract</strong> when done.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                        <div t-if="approved" class="alert alert-success alert-dismissible fade show" role="alert">
+                            <i class="fa fa-check-circle me-2"/>Attendance OT Report approved successfully and synced to employee contract!
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                        <div t-if="rejected" class="alert alert-danger alert-dismissible fade show" role="alert">
+                            <i class="fa fa-times-circle me-2"/>Attendance OT Report rejected.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                        <div t-if="updated" class="alert alert-info alert-dismissible fade show" role="alert">
+                            <i class="fa fa-info-circle me-2"/>Daily OT line adjustments saved successfully.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+
+                        <!-- Approved State Reopen / Correction Banner -->
+                        <div t-if="is_manager and sheet.state == 'approved'" class="alert alert-warning d-flex justify-content-between align-items-center mb-4 p-3 shadow-sm rounded">
+                            <div>
+                                <h6 class="alert-heading mb-1 text-dark fw-bold">
+                                    <i class="fa fa-info-circle text-warning me-2 fs-5"/>Forgot to approve Overtime or need to adjust hours?
+                                </h6>
+                                <span class="small text-muted d-block">This sheet is currently marked as Approved. Click <strong>Reopen for Adjustments</strong> to unlock the daily rows, approve OT or Absent deductions, and re-sync to the employee contract.</span>
+                            </div>
+                            <form t-attf-action="/my/attendance_ot/#{sheet.id}/reopen" method="POST" class="ms-3">
+                                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                <button type="submit" class="btn btn-warning fw-bold text-nowrap">
+                                    <i class="fa fa-undo me-1"/>Reopen for Adjustments
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Summary KPI Cards -->
+                        <div class="row text-center mb-4">
+                            <div class="col-md-3 mb-2">
+                                <div class="p-3 border rounded bg-light">
+                                    <span class="text-muted d-block small">Worked / Expected</span>
+                                    <span class="fs-4 fw-bold text-primary">
+                                        <t t-out="sheet.total_worked_hours"/> / <t t-out="sheet.total_expected_hours"/> hrs
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-2">
+                                <div class="p-3 border rounded bg-light border-success">
+                                    <span class="text-muted d-block small">Raw OT vs Approved OT</span>
+                                    <span class="fs-4 fw-bold text-success">
+                                        <t t-out="sheet.total_raw_ot_hours"/> &#8594; <t t-out="sheet.total_approved_ot_hours"/> hrs
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-2">
+                                <div class="p-3 border rounded bg-light border-danger">
+                                    <span class="text-muted d-block small">Unapproved Late Deduction</span>
+                                    <span class="fs-4 fw-bold text-danger">
+                                        <t t-out="sheet.total_approved_late_hours"/> hrs
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-2">
+                                <div class="p-3 border rounded bg-light border-warning">
+                                    <span class="text-muted d-block small">Absent Days (Deduct / Total)</span>
+                                    <span class="fs-4 fw-bold text-warning text-dark">
+                                        <t t-out="sheet.total_approved_absent_days"/> / <t t-out="sheet.total_absent_days"/> days
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Daily Breakdowns Table & Manager Interactive Form -->
+                        <form t-attf-action="/my/attendance_ot/#{sheet.id}/update_lines" method="POST">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h5 class="text-secondary mb-0"><i class="fa fa-list me-2"/>Daily Attendance &amp; OT Lines</h5>
+                                <t t-if="is_manager and sheet.state in ['submitted', 'draft']">
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                        <i class="fa fa-save me-1"/>Save Line Adjustments
+                                    </button>
+                                </t>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-striped align-middle fs-6">
+                                    <thead class="table-dark text-center">
+                                        <tr>
+                                            <th style="width: 100px;">Date</th>
+                                            <th style="width: 90px;">Day</th>
+                                            <th style="width: 90px;">Status</th>
+                                            <th style="width: 80px;">Worked</th>
+                                            <th style="width: 80px;">Raw OT</th>
+                                            <th t-if="is_manager and sheet.state in ['submitted', 'draft']" class="bg-primary text-white" style="width: 60px;">OT OK?</th>
+                                            <th t-if="is_manager and sheet.state in ['submitted', 'draft']" class="bg-primary text-white" style="width: 130px;">OT Category</th>
+                                            <th style="width: 90px;" class="bg-primary text-white">Approved OT</th>
+                                            <th style="width: 80px;">Late Mins</th>
+                                            <th t-if="is_manager and sheet.state in ['submitted', 'draft']" class="bg-danger text-white" style="width: 140px;">Absent Action</th>
+                                            <th style="width: 90px;" class="bg-danger text-white">Deduction Hrs</th>
+                                            <th>Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <t t-foreach="sheet.line_ids" t-as="l">
+                                            <tr>
+                                                <td class="fw-bold text-nowrap"><t t-out="l.date"/></td>
+                                                <td class="small text-muted"><t t-out="l.day_name"/></td>
+                                                <td class="text-center">
+                                                    <span t-if="l.status == 'present'" class="badge bg-success">Present</span>
+                                                    <span t-if="l.status == 'absent'" class="badge bg-danger">Absent</span>
+                                                    <span t-if="l.status == 'missed_punch' and l.missed_punch_type == 'morning'" class="badge bg-warning text-dark">Missed Punch (Morning)</span>
+                                                    <span t-if="l.status == 'missed_punch' and l.missed_punch_type == 'afternoon'" class="badge bg-warning text-dark">Missed Punch (Afternoon)</span>
+                                                    <span t-if="l.status == 'missed_punch' and not l.missed_punch_type" class="badge bg-warning text-dark">Missed Punch</span>
+                                                    <span t-if="l.status == 'on_leave'" class="badge bg-info">On Leave</span>
+                                                </td>
+                                                <td class="text-center"><t t-out="l.worked_hours"/> hrs</td>
+                                                <td class="text-center font-monospace"><t t-out="l.raw_ot_hours"/> hrs</td>
+
+                                                <!-- Overtime Acceptance Checkbox & Category Selector -->
+                                                <t t-if="is_manager and sheet.state in ['submitted', 'draft']">
+                                                    <td class="text-center bg-light">
+                                                        <input type="checkbox" t-att-name="'line_%s_is_ot_acceptable' % l.id"
+                                                               t-att-checked="'checked' if l.is_ot_acceptable else None" class="form-check-input"/>
+                                                    </td>
+                                                    <td class="text-center bg-light">
+                                                        <select t-att-name="'line_%s_ot_category' % l.id" class="form-select form-select-sm text-center">
+                                                            <option value="day" t-att-selected="'selected' if l.ot_category == 'day' else None">Day (1.5x)</option>
+                                                            <option value="night" t-att-selected="'selected' if l.ot_category == 'night' else None">Night (1.75x)</option>
+                                                            <option value="weekend" t-att-selected="'selected' if l.ot_category == 'weekend' else None">Weekend (2.0x)</option>
+                                                            <option value="holiday" t-att-selected="'selected' if l.ot_category == 'holiday' else None">Holiday (2.5x)</option>
+                                                        </select>
+                                                    </td>
+                                                </t>
+
+                                                <!-- Approved OT Hours Input -->
+                                                <td class="text-center font-monospace text-success fw-bold">
+                                                    <t t-if="is_manager and sheet.state in ['submitted', 'draft']">
+                                                        <input type="number" step="0.5" min="0" t-att-name="'line_%s_approved_ot_hours' % l.id"
+                                                               t-att-value="l.approved_ot_hours" class="form-control form-control-sm text-center d-inline-block" style="width: 75px;"/>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <t t-out="l.approved_ot_hours"/> hrs
+                                                        <t t-if="l.ot_category">
+                                                            <span class="badge bg-info ms-1 small"><t t-out="l.ot_category.capitalize()"/></span>
+                                                        </t>
+                                                    </t>
+                                                </td>
+
+                                                <td class="text-center"><t t-out="l.raw_late_minutes"/> mins</td>
+
+                                                <!-- Absence / Late Action Selector -->
+                                                <t t-if="is_manager and sheet.state in ['submitted', 'draft']">
+                                                    <td class="text-center bg-light">
+                                                        <select t-att-name="'line_%s_absent_action' % l.id" class="form-select form-select-sm text-center">
+                                                            <option value="deduct" t-att-selected="'selected' if not l.is_absent_excused else None">Deduct from Salary</option>
+                                                            <option value="excuse" t-att-selected="'selected' if l.is_absent_excused else None">Excuse / Waive</option>
+                                                        </select>
+                                                    </td>
+                                                </t>
+
+                                                <!-- Deduction Hours Input -->
+                                                <td class="text-center font-monospace text-danger fw-bold">
+                                                    <t t-if="is_manager and sheet.state in ['submitted', 'draft']">
+                                                        <input type="number" step="0.5" min="0" t-att-name="'line_%s_approved_late_hours' % l.id"
+                                                               t-att-value="l.approved_late_hours if (not l.is_absent_excused and l.approved_late_hours > 0) else (l.raw_late_hours if not l.is_absent_excused else 0.0)"
+                                                               class="form-control form-control-sm text-center d-inline-block" style="width: 75px;"/>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <t t-out="l.approved_late_hours"/> hrs
+                                                        <span t-if="l.is_absent_excused" class="badge bg-secondary ms-1 small">Excused</span>
+                                                        <span t-elif="l.approved_late_hours > 0" class="badge bg-danger ms-1 small">Deduct</span>
+                                                    </t>
+                                                </td>
+
+                                                <td>
+                                                    <t t-if="is_manager and sheet.state in ['submitted', 'draft']">
+                                                        <input type="text" t-att-name="'line_%s_notes' % l.id"
+                                                               t-att-value="l.notes or ''" class="form-control form-control-sm" placeholder="Add note..."/>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <t t-out="l.notes"/>
+                                                    </t>
+                                                </td>
+                                            </tr>
+                                        </t>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- Manager Action Bar -->
+                            <div t-if="is_manager and sheet.state == 'submitted'" class="d-flex justify-content-end gap-3 mt-4 p-3 bg-light border rounded">
+                                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#rejectModal">
+                                    <i class="fa fa-times me-1"/>Reject Report
+                                </button>
+                                <button type="submit" t-attf-formaction="/my/attendance_ot/#{sheet.id}/approve" class="btn btn-success btn-lg">
+                                    <i class="fa fa-check me-2"/>Approve Report &amp; Update Contract
+                                </button>
+                            </div>
+
+                            <div t-if="is_manager and sheet.state == 'approved'" class="d-flex justify-content-between align-items-center mt-4 p-3 bg-light border rounded">
+                                <div class="text-muted small">
+                                    <i class="fa fa-check text-success me-1"/> Approved by <strong t-out="sheet.approved_by_id.name or 'Manager'"/> on <span t-out="sheet.approval_date"/>.
+                                </div>
+                                <button type="submit" t-attf-formaction="/my/attendance_ot/#{sheet.id}/reopen" class="btn btn-warning">
+                                    <i class="fa fa-undo me-1"/>Reopen Sheet to Edit OT / Absent Hours
+                                </button>
+                            </div>
+                        </form>
+
+                        <!-- Rejection Modal -->
+                        <div class="modal fade" id="rejectModal" tabindex="-1">
+                            <div class="modal-dialog">
+                                <form t-attf-action="/my/attendance_ot/#{sheet.id}/reject" method="POST">
+                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <div class="modal-content">
+                                        <div class="modal-header bg-danger text-white">
+                                            <h5 class="modal-title"><i class="fa fa-exclamation-triangle me-2"/>Reject Attendance OT Report</h5>
+                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <label class="form-label">Please state the reason for rejection:</label>
+                                            <textarea name="rejection_reason" class="form-control" rows="3" required="required" placeholder="e.g. Overtime hours require further verification..."></textarea>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                            <button type="submit" class="btn btn-danger">Reject Sheet</button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Chatter -->
+                        <div class="mt-5">
+                            <h4 class="text-secondary"><i class="fa fa-comments me-2"/>Communication &amp; Audit Thread</h4>
+                            <t t-call="portal.message_thread">
+                                <t t-set="object" t-value="sheet"/>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+</odoo>
