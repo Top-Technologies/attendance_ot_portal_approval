@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_hr_payslip_form_attendance_ot_inherit" model="ir.ui.view">
+        <field name="name">hr.payslip.form.attendance.ot.inherit</field>
+        <field name="model">hr.payslip</field>
+        <field name="inherit_id" ref="hr_payroll.view_hr_payslip_form"/>
+        <field name="arch" type="xml">
+            <notebook position="inside">
+                <page string="Attendance OT &amp; Absent" name="attendance_ot_absent_summary">
+                    <!-- Main Form Groups for Overtime & Absent Hours -->
+                    <group>
+                        <group string="Overtime Hours Breakdown">
+                            <field name="ot_day_hours" string="Day Work (1.5x)"/>
+                            <field name="ot_night_hours" string="Night Shift (1.75x)"/>
+                            <field name="ot_weekend_hours" string="Weekend Rest (2.0x)"/>
+                            <field name="ot_holiday_hours" string="Public Holiday (2.5x)"/>
+                            <field name="approved_ot_hours" string="Total Approved OT" decoration-bf="1" decoration-success="approved_ot_hours &gt; 0"/>
+                        </group>
+                        <group string="Absent Deductions">
+                            <field name="approved_absent_hours" string="Absent Deduction Hours" decoration-bf="1" decoration-danger="approved_absent_hours &gt; 0"/>
+                            <field name="approved_absent_days" string="Absent Deduction Days"/>
+                        </group>
+                    </group>
+
+                    <!-- Calculated Totals for Payslip -->
+                    <group string="Calculated Period Totals">
+                        <group>
+                            <field name="total_ot_amount" string="Total Overtime Payment" decoration-bf="1" decoration-success="total_ot_amount &gt; 0"/>
+                        </group>
+                        <group>
+                            <field name="absent_deduction_amount" string="Total Absent Deduction" decoration-bf="1" decoration-danger="absent_deduction_amount &gt; 0"/>
+                        </group>
+                    </group>
+
+                    <!-- Linked Sheets for this period -->
+                    <group string="Attached Approved Attendance Sheets for Period">
+                        <field name="attendance_ot_sheet_ids" readonly="1" nolabel="1">
+                            <list string="Approved Sheets" decoration-success="state == 'approved'">
+                                <field name="name"/>
+                                <field name="date_from"/>
+                                <field name="date_to"/>
+                                <field name="total_approved_ot_hours" string="Total OT"/>
+                                <field name="total_approved_late_hours" string="Deduction Late/Absent"/>
+                                <field name="approval_date"/>
+                                <field name="state" widget="badge" decoration-success="state == 'approved'"/>
+                            </list>
+                        </field>
+                    </group>
+                </page>
+            </notebook>
+        </field>
+    </record>
+</odoo>
