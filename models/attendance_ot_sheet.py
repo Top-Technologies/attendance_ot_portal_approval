@@ -406,6 +406,10 @@ class AttendanceOtApprovalSheet(models.Model):
                         upd_vals['missed_punch_type'] = rec.missed_punch_type
                     if existing_line.status != rec.status:
                         upd_vals['status'] = rec.status
+                    if rec.status == 'absent' and not existing_line.is_absent_excused:
+                        exp_h = rec.expected_hours or 8.0
+                        if existing_line.approved_late_hours != exp_h:
+                            upd_vals['approved_late_hours'] = exp_h
                     if getattr(rec, 'leave_type_id', False) and existing_line.leave_type_id != rec.leave_type_id:
                         upd_vals['leave_type_id'] = rec.leave_type_id.id
                     if upd_vals:
@@ -886,10 +890,34 @@ class AttendanceOtApprovalLine(models.Model):
     )
     approved_late_hours = fields.Float(
         string='Deduction Hours',
+        compute='_compute_approved_late_hours',
+        store=True,
+        readonly=False,
         digits=(16, 2),
         help='Unapproved late/absent hours to be deducted from payroll contract.',
     )
     notes = fields.Char(string='Manager Notes')
+
+    @api.depends('status', 'is_absent_excused', 'is_late_excused', 'expected_hours', 'deduction_late_minutes', 'raw_late_minutes', 'raw_late_hours')
+    def _compute_approved_late_hours(self):
+        for line in self:
+            if line.status == 'absent':
+                if line.is_absent_excused:
+                    line.approved_late_hours = 0.0
+                else:
+                    line.approved_late_hours = line.expected_hours if (line.expected_hours and line.expected_hours > 0) else 8.0
+            else:
+                if line.is_late_excused:
+                    line.approved_late_hours = 0.0
+                else:
+                    if line.deduction_late_minutes is not False and line.deduction_late_minutes > 0:
+                        line.approved_late_hours = round(line.deduction_late_minutes / 60.0, 2)
+                    elif line.raw_late_minutes:
+                        line.approved_late_hours = round(line.raw_late_minutes / 60.0, 2)
+                    elif line.raw_late_hours:
+                        line.approved_late_hours = line.raw_late_hours
+                    else:
+                        line.approved_late_hours = 0.0
 
     @api.depends('date')
     def _compute_day_name(self):
