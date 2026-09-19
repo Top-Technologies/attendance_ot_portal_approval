@@ -33,6 +33,7 @@ Key Features:
     'depends': [
         'base',
         'hr',
+        'hr_attendance',
         'hr_contract',
         'hr_payroll',
         'portal',

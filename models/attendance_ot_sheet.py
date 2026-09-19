@@ -118,6 +118,21 @@ class AttendanceOtApprovalSheet(models.Model):
         store=True,
         digits=(16, 2),
     )
+    total_raw_late_minutes = fields.Integer(
+        string='Total Raw Late (Mins)',
+        compute='_compute_sheet_totals',
+        store=True,
+    )
+    total_excused_late_minutes = fields.Integer(
+        string='Excused Late (Mins)',
+        compute='_compute_sheet_totals',
+        store=True,
+    )
+    total_deduction_late_minutes = fields.Integer(
+        string='Deduction Late (Mins)',
+        compute='_compute_sheet_totals',
+        store=True,
+    )
     total_absent_days = fields.Integer(
         string='Total Absent Days',
         compute='_compute_sheet_totals',
@@ -134,6 +149,10 @@ class AttendanceOtApprovalSheet(models.Model):
         compute='_compute_sheet_totals',
         store=True,
         help='Absent days excused by manager.',
+    )
+    can_approve = fields.Boolean(
+        string='Can Approve',
+        compute='_compute_can_approve',
     )
 
     # Computed Approved Totals per OT Factor Category
@@ -225,12 +244,41 @@ class AttendanceOtApprovalSheet(models.Model):
             else:
                 sheet.contract_id = False
 
+    @api.depends_context('uid')
+    @api.depends('employee_id', 'manager_id', 'state')
+    def _compute_can_approve(self):
+        is_admin = (
+            self.env.user.has_group('zkteco_attendance.group_zkteco_admin')
+            or self.env.user.has_group('attendance_ot_portal_approval.group_attendance_ot_manager')
+            or self.env.is_superuser()
+        )
+        for sheet in self:
+            if sheet.state not in ('draft', 'submitted'):
+                sheet.can_approve = False
+            elif is_admin:
+                sheet.can_approve = True
+            elif sheet.employee_id.user_id == self.env.user:
+                # Disallow self-approval if manager is assigned
+                sheet.can_approve = not bool(sheet.employee_id.parent_id or sheet.employee_id.leave_manager_id)
+            else:
+                user_emp_ids = self.env.user.employee_ids.ids
+                sheet.can_approve = bool(
+                    sheet.manager_id.user_id == self.env.user
+                    or sheet.employee_id.parent_id.user_id == self.env.user
+                    or sheet.employee_id.leave_manager_id == self.env.user
+                    or sheet.employee_id.id in self.env['hr.employee'].search([('id', 'child_of', user_emp_ids)]).ids
+                )
+
     @api.depends(
         'line_ids',
         'line_ids.worked_hours',
         'line_ids.expected_hours',
         'line_ids.raw_ot_hours',
         'line_ids.raw_late_hours',
+        'line_ids.raw_late_minutes',
+        'line_ids.is_late_excused',
+        'line_ids.excused_late_minutes',
+        'line_ids.deduction_late_minutes',
         'line_ids.approved_ot_day_hours',
         'line_ids.approved_ot_night_hours',
         'line_ids.approved_ot_weekend_hours',
@@ -246,6 +294,7 @@ class AttendanceOtApprovalSheet(models.Model):
             expected = sum(sheet.line_ids.mapped('expected_hours'))
             raw_ot = sum(sheet.line_ids.mapped('raw_ot_hours'))
             raw_late = sum(sheet.line_ids.mapped('raw_late_hours'))
+            raw_late_mins = sum(sheet.line_ids.mapped('raw_late_minutes'))
             
             ot_day = sum(sheet.line_ids.mapped('approved_ot_day_hours'))
             ot_night = sum(sheet.line_ids.mapped('approved_ot_night_hours'))
@@ -258,12 +307,19 @@ class AttendanceOtApprovalSheet(models.Model):
             absent_count = len(absent_lines)
             excused_absent_count = len(absent_lines.filtered(lambda l: l.is_absent_excused))
             deduction_absent_count = max(absent_count - excused_absent_count, 0)
-            excused_late = sum(sheet.line_ids.filtered(lambda l: l.is_absent_excused).mapped('raw_late_hours'))
+            
+            excused_late_lines = sheet.line_ids.filtered(lambda l: l.is_late_excused)
+            excused_late_mins = sum(excused_late_lines.mapped('raw_late_minutes'))
+            excused_late_hours = sum(sheet.line_ids.filtered(lambda l: l.is_late_excused or l.is_absent_excused).mapped('raw_late_hours'))
+            deduction_late_mins = max(raw_late_mins - excused_late_mins, 0)
 
             sheet.total_worked_hours = worked
             sheet.total_expected_hours = expected
             sheet.total_raw_ot_hours = raw_ot
             sheet.total_raw_late_hours = raw_late
+            sheet.total_raw_late_minutes = raw_late_mins
+            sheet.total_excused_late_minutes = excused_late_mins
+            sheet.total_deduction_late_minutes = deduction_late_mins
 
             sheet.total_ot_day_hours = ot_day
             sheet.total_ot_night_hours = ot_night
@@ -275,7 +331,7 @@ class AttendanceOtApprovalSheet(models.Model):
             sheet.total_absent_days = absent_count
             sheet.total_excused_absent_days = excused_absent_count
             sheet.total_approved_absent_days = deduction_absent_count
-            sheet.total_excused_late_hours = excused_late
+            sheet.total_excused_late_hours = excused_late_hours
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -343,10 +399,15 @@ class AttendanceOtApprovalSheet(models.Model):
                     if existing_line.raw_late_hours != late_h:
                         upd_vals['raw_late_hours'] = late_h
                         upd_vals['raw_late_minutes'] = rec.late_minutes or 0
-                        if not existing_line.is_absent_excused:
+                        if not existing_line.is_late_excused and existing_line.status != 'absent':
+                            upd_vals['deduction_late_minutes'] = rec.late_minutes or 0
                             upd_vals['approved_late_hours'] = late_h
                     if hasattr(rec, 'missed_punch_type') and existing_line.missed_punch_type != rec.missed_punch_type:
                         upd_vals['missed_punch_type'] = rec.missed_punch_type
+                    if existing_line.status != rec.status:
+                        upd_vals['status'] = rec.status
+                    if getattr(rec, 'leave_type_id', False) and existing_line.leave_type_id != rec.leave_type_id:
+                        upd_vals['leave_type_id'] = rec.leave_type_id.id
                     if upd_vals:
                         existing_line.write(upd_vals)
                     continue
@@ -376,6 +437,7 @@ class AttendanceOtApprovalSheet(models.Model):
                     'attendance_record_id': rec.id,
                     'date': rec.date,
                     'status': rec.status,
+                    'leave_type_id': rec.leave_type_id.id if getattr(rec, 'leave_type_id', False) else False,
                     'missed_punch_type': getattr(rec, 'missed_punch_type', False),
                     'first_checkin': rec.first_checkin,
                     'last_checkout': rec.last_checkout,
@@ -390,8 +452,12 @@ class AttendanceOtApprovalSheet(models.Model):
                     'approved_ot_night_hours': night_h,
                     'approved_ot_weekend_hours': weekend_h,
                     'approved_ot_holiday_hours': holiday_h,
+                    'is_late_excused': False,
+                    'late_excuse_reason': False,
+                    'excused_late_minutes': 0,
+                    'deduction_late_minutes': late_mins,
                     'is_absent_excused': False,
-                    'approved_late_hours': late_hours if rec.status == 'absent' or late_hours > 0 else 0.0,
+                    'approved_late_hours': (rec.expected_hours or 8.0) if rec.status == 'absent' else (late_hours if late_hours > 0 else 0.0),
                 })
 
             if lines_vals:
@@ -411,7 +477,29 @@ class AttendanceOtApprovalSheet(models.Model):
             sheet._safe_message_post(_("Attendance OT & Absent sheet submitted for manager approval."))
 
     def action_approve(self):
+        is_admin = (
+            self.env.user.has_group('zkteco_attendance.group_zkteco_admin')
+            or self.env.user.has_group('attendance_ot_portal_approval.group_attendance_ot_manager')
+            or self.env.is_superuser()
+        )
         for sheet in self:
+            if not is_admin:
+                # Disallow self-approval when the employee has an assigned supervisor/manager
+                if sheet.employee_id.user_id == self.env.user and (sheet.employee_id.parent_id or sheet.employee_id.leave_manager_id):
+                    raise UserError(_("You cannot approve your own attendance & overtime sheet. It must be approved by your manager."))
+                
+                # Check that employee is within user's direct or indirect subordinates
+                user_emp_ids = self.env.user.employee_ids.ids
+                allowed_emps = self.env['hr.employee'].search([
+                    '|', '|', '|',
+                    ('id', 'child_of', user_emp_ids),
+                    ('parent_id.user_id', '=', self.env.user.id),
+                    ('leave_manager_id', '=', self.env.user.id),
+                    ('id', 'in', user_emp_ids),
+                ])
+                if sheet.employee_id not in allowed_emps:
+                    raise UserError(_("You can only approve attendance and overtime sheets for employees reporting to you."))
+
             sheet.state = 'approved'
             sheet.approved_by_id = self.env.uid
             sheet.approval_date = fields.Datetime.now()
@@ -431,6 +519,80 @@ class AttendanceOtApprovalSheet(models.Model):
                 sheet.total_ot_holiday_hours,
                 sheet.total_approved_late_hours
             ))
+
+    def action_generate_subordinate_sheets(self):
+        """Action for managers in backend to generate/refresh approval sheets for all subordinates for the current cycle."""
+        is_admin = (
+            self.env.user.has_group('zkteco_attendance.group_zkteco_admin')
+            or self.env.user.has_group('attendance_ot_portal_approval.group_attendance_ot_manager')
+            or self.env.is_superuser()
+        )
+        if is_admin:
+            subordinates = self.env['hr.employee'].search([('active', '=', True)])
+        else:
+            user_emp_ids = self.env.user.employee_ids.ids
+            subordinates = self.env['hr.employee'].search([
+                ('active', '=', True),
+                ('id', 'not in', user_emp_ids),
+                '|', '|',
+                ('id', 'child_of', user_emp_ids),
+                ('parent_id.user_id', '=', self.env.user.id),
+                ('leave_manager_id', '=', self.env.user.id),
+            ])
+
+        if not subordinates:
+            raise UserError(_("No subordinates found reporting to your account."))
+
+        date_from, date_to = self._get_default_payroll_period()
+        sheets = self._ensure_subordinate_sheets(subordinates=subordinates, date_from=date_from, date_to=date_to)
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Subordinate Sheets Refreshed'),
+                'message': _('Processed %d approval sheets for your subordinates (Period: %s to %s).') % (len(sheets), date_from, date_to),
+                'type': 'success',
+                'sticky': False,
+                'next': {'type': 'ir.actions.act_window_reload'},
+            }
+        }
+
+    def action_excuse_all_late(self):
+        """Excuse all late arrival lines on the sheet."""
+        for sheet in self:
+            late_lines = sheet.line_ids.filtered(lambda l: l.raw_late_minutes > 0)
+            for l in late_lines:
+                l.is_late_excused = True
+                if not l.late_excuse_reason:
+                    l.late_excuse_reason = 'manager_grace'
+                l.excused_late_minutes = l.raw_late_minutes
+                l.deduction_late_minutes = 0
+                if l.status != 'absent':
+                    l.approved_late_hours = 0.0
+            sheet._safe_message_post(_("Manager %s excused all late arrivals on this sheet.") % self.env.user.name)
+
+    def action_deduct_all_late(self):
+        """Reset all late arrivals to be deducted from payroll."""
+        for sheet in self:
+            late_lines = sheet.line_ids.filtered(lambda l: l.raw_late_minutes > 0)
+            for l in late_lines:
+                l.is_late_excused = False
+                l.late_excuse_reason = False
+                l.excused_late_minutes = 0
+                l.deduction_late_minutes = l.raw_late_minutes
+                if l.status != 'absent':
+                    l.approved_late_hours = l.raw_late_hours
+            sheet._safe_message_post(_("Manager %s reset late arrivals to unexcused deduction.") % self.env.user.name)
+
+    def action_accept_all_ot(self):
+        """Accept all recorded overtime lines on the sheet."""
+        for sheet in self:
+            ot_lines = sheet.line_ids.filtered(lambda l: l.raw_ot_hours > 0)
+            for l in ot_lines:
+                l.is_ot_acceptable = True
+                l._onchange_ot_category_or_acceptance()
+            sheet._safe_message_post(_("Manager %s accepted all recorded overtime lines.") % self.env.user.name)
 
     def action_reject(self):
         for sheet in self:
@@ -646,6 +808,7 @@ class AttendanceOtApprovalLine(models.Model):
         ('missed_punch', 'Missed Punch'),
         ('on_leave', 'On Leave'),
     ], string='Attendance Status', default='present', required=True)
+    leave_type_id = fields.Many2one('hr.leave.type', string='Time Off Type')
     missed_punch_type = fields.Selection([
         ('morning', 'Missed Morning Punch'),
         ('afternoon', 'Missed Afternoon Punch'),
@@ -688,10 +851,38 @@ class AttendanceOtApprovalLine(models.Model):
         digits=(16, 2),
         help='Approved overtime hours for payroll.',
     )
-    is_absent_excused = fields.Boolean(
-        string='Absence Excused',
+    is_late_excused = fields.Boolean(
+        string='Excuse Late?',
         default=False,
-        help='Check if the late arrival or absence on this day is excused by the manager.',
+        help='Check if the employee arrival delay on this day is excused/waived by the manager.',
+    )
+    late_excuse_reason = fields.Selection([
+        ('traffic', 'Traffic / Commute Delay'),
+        ('weather', 'Inclement Weather'),
+        ('official', 'Official Assignment / Client Visit'),
+        ('medical', 'Medical / Clinic Visit'),
+        ('family', 'Personal / Family Emergency'),
+        ('manager_grace', 'Manager Discretion / Approved Delay'),
+        ('other', 'Other Reason (See Notes)'),
+    ], string='Late Excuse Reason')
+    excused_late_minutes = fields.Integer(
+        string='Excused Late Mins',
+        compute='_compute_late_approval_minutes',
+        store=True,
+        readonly=False,
+        help='Late minutes excused by the manager for this day.',
+    )
+    deduction_late_minutes = fields.Integer(
+        string='Deduction Late Mins',
+        compute='_compute_late_approval_minutes',
+        store=True,
+        readonly=False,
+        help='Late minutes subject to payroll deduction.',
+    )
+    is_absent_excused = fields.Boolean(
+        string='Excuse Absence?',
+        default=False,
+        help='Check if the absence on this day is excused by the manager.',
     )
     approved_late_hours = fields.Float(
         string='Deduction Hours',
@@ -707,6 +898,17 @@ class AttendanceOtApprovalLine(models.Model):
                 line.day_name = line.date.strftime('%A')
             else:
                 line.day_name = ''
+
+    @api.depends('raw_late_minutes', 'is_late_excused')
+    def _compute_late_approval_minutes(self):
+        for line in self:
+            raw_m = line.raw_late_minutes or 0
+            if line.is_late_excused:
+                line.excused_late_minutes = raw_m
+                line.deduction_late_minutes = 0
+            else:
+                line.excused_late_minutes = 0
+                line.deduction_late_minutes = raw_m
 
     @api.depends(
         'approved_ot_day_hours',
@@ -737,10 +939,26 @@ class AttendanceOtApprovalLine(models.Model):
                 line.approved_ot_weekend_hours = line.raw_ot_hours if line.ot_category == 'weekend' else 0.0
                 line.approved_ot_holiday_hours = line.raw_ot_hours if line.ot_category == 'holiday' else 0.0
 
-    @api.onchange('is_absent_excused', 'raw_late_hours')
-    def _onchange_is_absent_excused(self):
+    @api.onchange('is_late_excused', 'is_absent_excused', 'raw_late_hours', 'raw_late_minutes', 'status', 'expected_hours')
+    def _onchange_is_late_or_absent_excused(self):
         for line in self:
-            if line.is_absent_excused:
-                line.approved_late_hours = 0.0
+            if line.status == 'absent':
+                if line.is_absent_excused:
+                    line.approved_late_hours = 0.0
+                else:
+                    line.approved_late_hours = line.expected_hours or 8.0
             else:
-                line.approved_late_hours = line.raw_late_hours
+                if line.is_late_excused:
+                    line.approved_late_hours = 0.0
+                    line.excused_late_minutes = line.raw_late_minutes or 0
+                    line.deduction_late_minutes = 0
+                else:
+                    line.approved_late_hours = line.raw_late_hours or 0.0
+                    line.excused_late_minutes = 0
+                    line.deduction_late_minutes = line.raw_late_minutes or 0
+
+    @api.onchange('deduction_late_minutes')
+    def _onchange_deduction_late_minutes(self):
+        for line in self:
+            if line.status != 'absent' and line.deduction_late_minutes is not False:
+                line.approved_late_hours = (line.deduction_late_minutes or 0) / 60.0

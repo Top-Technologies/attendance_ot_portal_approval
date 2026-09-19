@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <data noupdate="1">
+    <data noupdate="0">
         <!-- Module Category -->
         <record id="module_category_attendance_ot" model="ir.module.category">
             <field name="name">Attendance OT &amp; Absent Approvals</field>
@@ -30,21 +30,15 @@
             <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
         </record>
 
-        <!-- Employee Rule: View own sheets -->
-        <record id="attendance_ot_sheet_employee_rule" model="ir.rule">
-            <field name="name">Attendance OT Sheet: View Own Sheets</field>
-            <field name="model_id" ref="model_attendance_ot_approval_sheet"/>
-            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
-        </record>
-
-        <!-- Subordinate Manager Rule: View and manage subordinate sheets -->
+        <!-- Subordinate Manager Rule: View and manage subordinate sheets only (never self) -->
         <record id="attendance_ot_sheet_subordinate_manager_rule" model="ir.rule">
             <field name="name">Attendance OT Sheet: Subordinate Manager Rule</field>
             <field name="model_id" ref="model_attendance_ot_approval_sheet"/>
             <field name="domain_force">[
+                ('employee_id', 'not in', user.employee_ids.ids),
+                ('employee_id.user_id', '!=', user.id),
                 '|', '|', '|',
-                ('employee_id.user_id', '=', user.id),
+                ('employee_id', 'child_of', user.employee_ids.ids),
                 ('employee_id.parent_id.user_id', '=', user.id),
                 ('employee_id.leave_manager_id', '=', user.id),
                 ('manager_id.user_id', '=', user.id)
@@ -57,7 +51,7 @@
             <field name="name">Attendance OT Sheet: Officer View All</field>
             <field name="model_id" ref="model_attendance_ot_approval_sheet"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_attendance_ot_user'))]"/>
+            <field name="groups" eval="[(4, ref('group_attendance_ot_user')), (4, ref('zkteco_attendance.group_zkteco_admin'))]"/>
         </record>
 
         <!-- Portal User Rule: View own sheets and subordinate sheets -->
@@ -65,8 +59,9 @@
             <field name="name">Attendance OT Sheet: Portal User Rule</field>
             <field name="model_id" ref="model_attendance_ot_approval_sheet"/>
             <field name="domain_force">[
-                '|', '|', '|',
+                '|', '|', '|', '|',
                 ('employee_id.user_id', '=', user.id),
+                ('employee_id', 'child_of', user.employee_ids.ids),
                 ('employee_id.parent_id.user_id', '=', user.id),
                 ('employee_id.leave_manager_id', '=', user.id),
                 ('manager_id.user_id', '=', user.id)
@@ -74,13 +69,45 @@
             <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
         </record>
 
+        <!-- Line Multi-Company Rule -->
+        <record id="attendance_ot_line_comp_rule" model="ir.rule">
+            <field name="name">Attendance OT Line Multi-Company</field>
+            <field name="model_id" ref="model_attendance_ot_approval_line"/>
+            <field name="domain_force">['|', ('sheet_id.company_id', '=', False), ('sheet_id.company_id', 'in', company_ids)]</field>
+        </record>
+
+        <!-- Subordinate Manager Rule for Line: Subordinates only (never self) -->
+        <record id="attendance_ot_line_subordinate_manager_rule" model="ir.rule">
+            <field name="name">Attendance OT Line: Subordinate Manager Rule</field>
+            <field name="model_id" ref="model_attendance_ot_approval_line"/>
+            <field name="domain_force">[
+                ('sheet_id.employee_id', 'not in', user.employee_ids.ids),
+                ('sheet_id.employee_id.user_id', '!=', user.id),
+                '|', '|', '|',
+                ('sheet_id.employee_id', 'child_of', user.employee_ids.ids),
+                ('sheet_id.employee_id.parent_id.user_id', '=', user.id),
+                ('sheet_id.employee_id.leave_manager_id', '=', user.id),
+                ('sheet_id.manager_id.user_id', '=', user.id)
+            ]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        </record>
+
+        <!-- Officer / Admin Rule for Line -->
+        <record id="attendance_ot_line_officer_rule" model="ir.rule">
+            <field name="name">Attendance OT Line: Officer View All</field>
+            <field name="model_id" ref="model_attendance_ot_approval_line"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_attendance_ot_user')), (4, ref('zkteco_attendance.group_zkteco_admin'))]"/>
+        </record>
+
         <!-- Portal User Rule for Line -->
         <record id="attendance_ot_line_portal_rule" model="ir.rule">
             <field name="name">Attendance OT Line: Portal User Rule</field>
             <field name="model_id" ref="model_attendance_ot_approval_line"/>
             <field name="domain_force">[
-                '|', '|', '|',
+                '|', '|', '|', '|',
                 ('sheet_id.employee_id.user_id', '=', user.id),
+                ('sheet_id.employee_id', 'child_of', user.employee_ids.ids),
                 ('sheet_id.employee_id.parent_id.user_id', '=', user.id),
                 ('sheet_id.employee_id.leave_manager_id', '=', user.id),
                 ('sheet_id.manager_id.user_id', '=', user.id)

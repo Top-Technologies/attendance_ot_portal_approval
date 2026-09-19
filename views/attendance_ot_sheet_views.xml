@@ -6,6 +6,9 @@
         <field name="model">attendance.ot.approval.sheet</field>
         <field name="arch" type="xml">
             <list string="Attendance OT &amp; Absent Approval Sheets" sample="1">
+                <header>
+                    <button name="action_generate_subordinate_sheets" string="Generate / Refresh Subordinate Sheets" type="object" class="btn-primary" display="always"/>
+                </header>
                 <field name="name" decoration-bf="1"/>
                 <field name="employee_id"/>
                 <field name="department_id" optional="show"/>
@@ -34,13 +37,16 @@
                 <header>
                     <button name="action_fetch_attendance_records" string="Fetch / Refresh Records" type="object" class="oe_highlight" invisible="state not in ('draft', 'submitted')"/>
                     <button name="action_submit" string="Submit for Approval" type="object" class="oe_highlight" invisible="state != 'draft'"/>
-                    <button name="action_approve" string="Approve Report &amp; Sync Contract" type="object" class="btn-success" invisible="state not in ('draft', 'submitted')"/>
-                    <button name="action_reject" string="Reject Report" type="object" class="btn-danger" invisible="state != 'submitted'"/>
-                    <button name="action_reopen" string="Reopen for Adjustment" type="object" class="btn-warning" invisible="state not in ('approved', 'rejected')"/>
-                    <button name="action_reset_draft" string="Reset to Draft" type="object" invisible="state == 'draft'"/>
+                    <button name="action_approve" string="Approve Report &amp; Sync Contract" type="object" class="btn-success" invisible="state not in ('draft', 'submitted') or not can_approve"/>
+                    <button name="action_reject" string="Reject Report" type="object" class="btn-danger" invisible="state != 'submitted' or not can_approve"/>
+                    <button name="action_excuse_all_late" string="Excuse All Late Arrivals" type="object" class="btn-outline-info" invisible="state not in ('draft', 'submitted') or not can_approve"/>
+                    <button name="action_accept_all_ot" string="Accept All OT" type="object" class="btn-outline-primary" invisible="state not in ('draft', 'submitted') or not can_approve"/>
+                    <button name="action_reopen" string="Reopen for Adjustment" type="object" class="btn-warning" invisible="state not in ('approved', 'rejected') or not can_approve"/>
+                    <button name="action_reset_draft" string="Reset to Draft" type="object" invisible="state == 'draft' or not can_approve"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,submitted,approved,rejected"/>
                 </header>
                 <sheet>
+                    <field name="can_approve" invisible="1"/>
                     <div class="oe_title">
                         <label for="name" string="Report Reference"/>
                         <h1>
@@ -63,52 +69,71 @@
                         </group>
                     </group>
 
-                    <!-- Overtime Factor Summary Banner -->
-                    <div class="row text-center mb-3">
-                        <div class="col-md-2">
-                            <div class="border rounded p-2 bg-light">
-                                <span class="text-muted d-block small">Day OT (1.5x)</span>
+                    <!-- Overtime & Late Hours Summary Cards -->
+                    <div class="row g-2 text-center mb-3">
+                        <!-- Overtime Cards -->
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded p-2 bg-light shadow-sm">
+                                <span class="text-muted d-block small fw-bold">Day OT (1.5x)</span>
                                 <span class="fs-5 fw-bold text-primary">
                                     <field name="total_ot_day_hours" widget="float"/> hrs
                                 </span>
                             </div>
                         </div>
-                        <div class="col-md-2">
-                            <div class="border rounded p-2 bg-light">
-                                <span class="text-muted d-block small">Night OT (1.75x)</span>
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded p-2 bg-light shadow-sm">
+                                <span class="text-muted d-block small fw-bold">Night OT (1.75x)</span>
                                 <span class="fs-5 fw-bold text-info">
                                     <field name="total_ot_night_hours" widget="float"/> hrs
                                 </span>
                             </div>
                         </div>
-                        <div class="col-md-2">
-                            <div class="border rounded p-2 bg-light">
-                                <span class="text-muted d-block small">Weekend OT (2.0x)</span>
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded p-2 bg-light shadow-sm">
+                                <span class="text-muted d-block small fw-bold">Weekend OT (2.0x)</span>
                                 <span class="fs-5 fw-bold text-dark">
                                     <field name="total_ot_weekend_hours" widget="float"/> hrs
                                 </span>
                             </div>
                         </div>
-                        <div class="col-md-2">
-                            <div class="border rounded p-2 bg-light">
-                                <span class="text-muted d-block small">Holiday OT (2.5x)</span>
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded p-2 bg-light shadow-sm">
+                                <span class="text-muted d-block small fw-bold">Holiday OT (2.5x)</span>
                                 <span class="fs-5 fw-bold text-danger">
                                     <field name="total_ot_holiday_hours" widget="float"/> hrs
                                 </span>
                             </div>
                         </div>
-                        <div class="col-md-2">
-                            <div class="border rounded p-2 bg-light border-success">
-                                <span class="text-muted d-block small">Total Approved OT</span>
+
+                        <!-- Second Row: Totals, Late Minutes, and Deductions -->
+                        <div class="col-6 col-md-3">
+                            <div class="border border-success rounded p-2 bg-light shadow-sm">
+                                <span class="text-success d-block small fw-bold">Total Approved OT</span>
                                 <span class="fs-4 fw-bold text-success">
                                     <field name="total_approved_ot_hours" widget="float"/> hrs
                                 </span>
                             </div>
                         </div>
-                        <div class="col-md-2">
-                            <div class="border rounded p-2 bg-light border-danger">
-                                <span class="text-muted d-block small">Unapproved Late</span>
-                                <span class="fs-5 fw-bold text-danger">
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded p-2 bg-light shadow-sm">
+                                <span class="text-muted d-block small fw-bold">Recorded Late Mins</span>
+                                <span class="fs-5 fw-bold text-warning">
+                                    <field name="total_raw_late_minutes"/> mins
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="border border-info rounded p-2 bg-light shadow-sm">
+                                <span class="text-info d-block small fw-bold">Excused Late Mins</span>
+                                <span class="fs-5 fw-bold text-info">
+                                    <field name="total_excused_late_minutes"/> mins
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="border border-danger rounded p-2 bg-light shadow-sm">
+                                <span class="text-danger d-block small fw-bold">Total Deduction Hours</span>
+                                <span class="fs-4 fw-bold text-danger">
                                     <field name="total_approved_late_hours" widget="float"/> hrs
                                 </span>
                             </div>
@@ -120,22 +145,30 @@
                             <field name="line_ids">
                                 <list string="Daily Attendance Lines" editable="bottom">
                                     <field name="date"/>
-                                    <field name="day_name"/>
+                                    <field name="day_name" optional="hide"/>
                                     <field name="status" widget="badge" decoration-success="status == 'present'" decoration-danger="status == 'absent'" decoration-warning="status == 'missed_punch'" decoration-info="status == 'on_leave'"/>
+                                    <field name="leave_type_id" string="Time Off" optional="hide"/>
                                     <field name="first_checkin" widget="datetime" optional="show"/>
                                     <field name="last_checkout" widget="datetime" optional="show"/>
-                                    <field name="worked_hours" widget="float"/>
+                                    <field name="worked_hours" widget="float" optional="show"/>
+                                    
+                                    <!-- Overtime Review -->
                                     <field name="raw_ot_hours" widget="float" string="Raw OT"/>
-                                    <field name="is_ot_acceptable" widget="boolean_toggle"/>
-                                    <field name="ot_category" string="OT Category"/>
-                                    <field name="approved_ot_day_hours" widget="float" string="Day (1.5)"/>
-                                    <field name="approved_ot_night_hours" widget="float" string="Night (1.75)"/>
-                                    <field name="approved_ot_weekend_hours" widget="float" string="Weekend (2)"/>
-                                    <field name="approved_ot_holiday_hours" widget="float" string="Holiday (2.5)"/>
-                                    <field name="approved_ot_hours" widget="float" string="Total Approved OT" readonly="1"/>
-                                    <field name="raw_late_minutes" string="Late (mins)"/>
-                                    <field name="is_absent_excused" widget="boolean_toggle" string="Excused (Waived)?"/>
-                                    <field name="approved_late_hours" widget="float" string="Deduction (hrs)"/>
+                                    <field name="is_ot_acceptable" widget="boolean_toggle" string="Accept OT?"/>
+                                    <field name="ot_category" string="OT Factor"/>
+                                    <field name="approved_ot_hours" widget="float" string="Approved OT" decoration-success="approved_ot_hours &gt; 0"/>
+                                    <field name="approved_ot_day_hours" widget="float" string="Day (1.5)" optional="hide"/>
+                                    <field name="approved_ot_night_hours" widget="float" string="Night (1.75)" optional="hide"/>
+                                    <field name="approved_ot_weekend_hours" widget="float" string="Weekend (2.0)" optional="hide"/>
+                                    <field name="approved_ot_holiday_hours" widget="float" string="Holiday (2.5)" optional="hide"/>
+
+                                    <!-- Late Minutes & Excuse Review -->
+                                    <field name="raw_late_minutes" string="Late (mins)" decoration-danger="raw_late_minutes &gt; 0 and not is_late_excused" decoration-muted="is_late_excused"/>
+                                    <field name="is_late_excused" widget="boolean_toggle" string="Excuse Late?"/>
+                                    <field name="late_excuse_reason" string="Late Excuse Reason" optional="show"/>
+                                    <field name="deduction_late_minutes" string="Deduct (mins)" optional="hide"/>
+                                    <field name="is_absent_excused" widget="boolean_toggle" string="Excuse Absent?" optional="show"/>
+                                    <field name="approved_late_hours" widget="float" string="Deduction (hrs)" decoration-danger="approved_late_hours &gt; 0"/>
                                     <field name="notes" placeholder="Manager comments..."/>
                                 </list>
                             </field>
@@ -168,10 +201,13 @@
                 <field name="employee_id"/>
                 <field name="department_id"/>
                 <field name="manager_id"/>
+                <filter string="To Approve" name="to_approve" domain="[('state', '=', 'submitted'), ('employee_id.user_id', '!=', uid)]"/>
                 <filter string="Draft" name="draft" domain="[('state', '=', 'draft')]"/>
-                <filter string="Pending Approval" name="submitted" domain="[('state', '=', 'submitted')]"/>
                 <filter string="Approved" name="approved" domain="[('state', '=', 'approved')]"/>
                 <filter string="Rejected" name="rejected" domain="[('state', '=', 'rejected')]"/>
+                <separator/>
+                <filter string="My Subordinates" name="my_subordinates" domain="['|', ('manager_id.user_id', '=', uid), ('employee_id.parent_id.user_id', '=', uid)]"/>
+                <filter string="My Sheets" name="my_sheets" domain="[('employee_id.user_id', '=', uid)]"/>
                 <group expand="0" string="Group By">
                     <filter string="Employee" name="group_employee" context="{'group_by': 'employee_id'}"/>
                     <filter string="Department" name="group_department" context="{'group_by': 'department_id'}"/>
@@ -189,6 +225,7 @@
         <field name="res_model">attendance.ot.approval.sheet</field>
         <field name="view_mode">list,form,kanban</field>
         <field name="search_view_id" ref="view_attendance_ot_sheet_search"/>
+        <field name="context">{}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
                 Create or generate the first Attendance OT &amp; Absent Approval Sheet!
@@ -198,4 +235,21 @@
             </p>
         </field>
     </record>
+
+    <!-- Backend Menus -->
+    <!-- Under ZKTeco -> Approvals -->
+    <menuitem id="menu_zkteco_attendance_ot_sheet"
+              name="OT &amp; Absent Approvals"
+              parent="zkteco_attendance.menu_zkteco_approvals_parent"
+              action="action_attendance_ot_sheet"
+              sequence="10"
+              groups="zkteco_attendance.group_zkteco_manager"/>
+
+    <!-- Under Attendances App Root -->
+    <menuitem id="menu_hr_attendance_ot_sheet"
+              name="OT &amp; Absent Approvals"
+              parent="hr_attendance.menu_hr_attendance_root"
+              action="action_attendance_ot_sheet"
+              sequence="30"
+              groups="zkteco_attendance.group_zkteco_manager,hr.group_hr_user"/>
 </odoo>
