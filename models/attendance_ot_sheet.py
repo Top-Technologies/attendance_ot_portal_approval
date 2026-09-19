@@ -558,7 +558,7 @@ class AttendanceOtApprovalSheet(models.Model):
                 'message': _('Processed %d approval sheets for your subordinates (Period: %s to %s).') % (len(sheets), date_from, date_to),
                 'type': 'success',
                 'sticky': False,
-                'next': {'type': 'ir.actions.act_window_reload'},
+                'next': {'type': 'ir.actions.client', 'tag': 'reload'},
             }
         }
 
