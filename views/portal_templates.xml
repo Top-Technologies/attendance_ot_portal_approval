@@ -175,11 +175,99 @@
                     </div>
 
                     <div class="card-body">
+                        <!-- HR Admin Role Scope Selector -->
+                        <t t-if="is_hr_admin">
+                            <div class="alert alert-info border-info d-flex flex-column flex-md-row justify-content-between align-items-md-center p-3 rounded-3 mb-3">
+                                <div class="mb-2 mb-md-0">
+                                    <strong><i class="fa fa-shield me-2"/>HR Admin / Officer Mode:</strong>
+                                    <span class="text-muted ms-1">You have administrative approval access across reporting lines:</span>
+                                </div>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <a t-attf-href="/my/attendance_ot/to_approve?scope=subordinates&amp;date_from=#{date_from}&amp;date_to=#{date_to}"
+                                       t-attf-class="btn #{'btn-primary active fw-bold text-white' if scope == 'subordinates' else 'btn-outline-primary bg-white'}">
+                                        <i class="fa fa-users me-1"/> My Team Hierarchy
+                                    </a>
+                                    <a t-attf-href="/my/attendance_ot/to_approve?scope=unassigned&amp;date_from=#{date_from}&amp;date_to=#{date_to}"
+                                       t-attf-class="btn #{'btn-warning active fw-bold text-dark' if scope == 'unassigned' else 'btn-outline-warning bg-white text-dark'}">
+                                        <i class="fa fa-user-times me-1"/> Unassigned Employees
+                                    </a>
+                                    <a t-attf-href="/my/attendance_ot/to_approve?scope=all&amp;date_from=#{date_from}&amp;date_to=#{date_to}"
+                                       t-attf-class="btn #{'btn-secondary active fw-bold text-white' if scope == 'all' else 'btn-outline-secondary bg-white'}">
+                                        <i class="fa fa-globe me-1"/> All Employees
+                                    </a>
+                                </div>
+                            </div>
+                            <t t-if="scope == 'unassigned'">
+                                <div class="alert alert-warning py-2 px-3 small rounded-3 mb-3">
+                                    <i class="fa fa-exclamation-triangle me-1"/> <strong>Notice:</strong> Employees below have <em>no manager assigned</em> in their profile (`parent_id = False`). They are strictly hidden from team managers and can only be reviewed and approved by HR Admins.
+                                </div>
+                            </t>
+                        </t>
+
+                        <!-- Team Summary Metrics KPI Cards -->
+                        <div class="row g-3 mb-4">
+                            <div class="col-6 col-md-4 col-lg-2">
+                                <div class="card h-100 border-0 bg-light shadow-sm rounded-3 p-3 text-center border-start border-primary border-4">
+                                    <div class="text-muted small fw-bold text-uppercase">Team Size</div>
+                                    <div class="fs-4 fw-bold text-primary mt-1">
+                                        <t t-out="team_metrics.get('total_team', 0)"/>
+                                    </div>
+                                    <div class="small text-muted">Members</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-4 col-lg-2">
+                                <div class="card h-100 border-0 bg-light shadow-sm rounded-3 p-3 text-center border-start border-success border-4">
+                                    <div class="text-muted small fw-bold text-uppercase">Present Today</div>
+                                    <div class="fs-4 fw-bold text-success mt-1">
+                                        <t t-out="team_metrics.get('present_count', 0)"/>
+                                    </div>
+                                    <div class="small text-muted">Clocked In</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-4 col-lg-2">
+                                <div class="card h-100 border-0 bg-light shadow-sm rounded-3 p-3 text-center border-start border-danger border-4">
+                                    <div class="text-muted small fw-bold text-uppercase">Absent Today</div>
+                                    <div class="fs-4 fw-bold text-danger mt-1">
+                                        <t t-out="team_metrics.get('absent_count', 0)"/>
+                                    </div>
+                                    <div class="small text-muted">Missing</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-4 col-lg-2">
+                                <div class="card h-100 border-0 bg-light shadow-sm rounded-3 p-3 text-center border-start border-warning border-4">
+                                    <div class="text-muted small fw-bold text-uppercase">Late Today</div>
+                                    <div class="fs-4 fw-bold text-warning mt-1">
+                                        <t t-out="team_metrics.get('late_count', 0)"/>
+                                    </div>
+                                    <div class="small text-muted">Delayed</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-4 col-lg-2">
+                                <div class="card h-100 border-0 bg-light shadow-sm rounded-3 p-3 text-center border-start border-info border-4">
+                                    <div class="text-muted small fw-bold text-uppercase">On Leave</div>
+                                    <div class="fs-4 fw-bold text-info mt-1">
+                                        <t t-out="team_metrics.get('on_leave_count', 0)"/>
+                                    </div>
+                                    <div class="small text-muted">Approved Time Off</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-4 col-lg-2">
+                                <div class="card h-100 border-0 shadow-sm rounded-3 p-3 text-center border-start border-danger border-4" t-attf-class="bg-#{'danger-subtle' if team_metrics.get('pending_count', 0) &gt; 0 else 'light'}">
+                                    <div class="text-muted small fw-bold text-uppercase">To Approve</div>
+                                    <div class="fs-4 fw-bold mt-1" t-attf-class="text-#{'danger' if team_metrics.get('pending_count', 0) &gt; 0 else 'secondary'}">
+                                        <t t-out="team_metrics.get('pending_count', 0)"/>
+                                    </div>
+                                    <div class="small text-muted">Sheets Pending</div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Payroll Cycle & Date Range Selector -->
                         <div class="card bg-light border-0 shadow-sm rounded-3 p-3 mb-4">
                             <form method="GET" action="/my/attendance_ot/to_approve" class="row g-2 align-items-center">
                                 <input type="hidden" name="filterby" t-att-value="filterby"/>
                                 <input type="hidden" name="sortby" t-att-value="sortby"/>
+                                <input type="hidden" name="scope" t-att-value="scope"/>
                                 <t t-if="selected_employee_id">
                                     <input type="hidden" name="employee_id" t-att-value="selected_employee_id"/>
                                 </t>
@@ -203,15 +291,15 @@
                                 </div>
                                 <div class="col-12 col-lg-auto ms-lg-auto d-flex flex-wrap gap-1 align-items-center">
                                     <span class="text-muted small me-1">Presets:</span>
-                                    <a t-attf-href="/my/attendance_ot/to_approve?date_from=#{presets['cycle_from']}&amp;date_to=#{presets['cycle_to']}&amp;filterby=#{filterby}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
+                                    <a t-attf-href="/my/attendance_ot/to_approve?date_from=#{presets['cycle_from']}&amp;date_to=#{presets['cycle_to']}&amp;scope=#{scope}&amp;filterby=#{filterby}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
                                        t-attf-class="btn btn-sm #{'btn-primary active fw-bold text-white' if date_from == presets['cycle_from'] and date_to == presets['cycle_to'] else 'btn-outline-secondary bg-white'}">
                                         Payroll Cycle (<t t-esc="presets['cycle_from'][5:]"/> to <t t-esc="presets['cycle_to'][5:]"/>)
                                     </a>
-                                    <a t-attf-href="/my/attendance_ot/to_approve?date_from=#{presets['cal_month_from']}&amp;date_to=#{presets['cal_month_to']}&amp;filterby=#{filterby}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
+                                    <a t-attf-href="/my/attendance_ot/to_approve?date_from=#{presets['cal_month_from']}&amp;date_to=#{presets['cal_month_to']}&amp;scope=#{scope}&amp;filterby=#{filterby}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
                                        t-attf-class="btn btn-sm #{'btn-primary active fw-bold text-white' if date_from == presets['cal_month_from'] and date_to == presets['cal_month_to'] else 'btn-outline-secondary bg-white'}">
                                         Calendar Month
                                     </a>
-                                    <a t-attf-href="/my/attendance_ot/to_approve?date_from=#{presets['prev_month_from']}&amp;date_to=#{presets['prev_month_to']}&amp;filterby=#{filterby}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
+                                    <a t-attf-href="/my/attendance_ot/to_approve?date_from=#{presets['prev_month_from']}&amp;date_to=#{presets['prev_month_to']}&amp;scope=#{scope}&amp;filterby=#{filterby}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
                                        t-attf-class="btn btn-sm #{'btn-primary active fw-bold text-white' if date_from == presets['prev_month_from'] and date_to == presets['prev_month_to'] else 'btn-outline-secondary bg-white'}">
                                         Prev Month
                                     </a>
@@ -223,7 +311,7 @@
                         <div class="mb-4">
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <h5 class="fw-bold text-secondary mb-0">
-                                    <i class="fa fa-user-circle-o me-2"/>Employees Under My Supervision (<t t-out="len(subordinate_stats or [])"/>)
+                                    <i class="fa fa-user-circle-o me-2"/>Employees Under Supervision (<t t-out="len(subordinate_stats or [])"/>)
                                 </h5>
                                 <span class="text-muted small">
                                     Active Period: <strong><t t-out="date_from"/></strong> to <strong><t t-out="date_to"/></strong>
@@ -232,14 +320,14 @@
                             <div class="row g-3">
                                 <!-- Filter All Button -->
                                 <div class="col-md-3 col-sm-6">
-                                    <a t-attf-href="/my/attendance_ot/to_approve?filterby=#{filterby}&amp;date_from=#{date_from}&amp;date_to=#{date_to}"
+                                    <a t-attf-href="/my/attendance_ot/to_approve?filterby=#{filterby}&amp;scope=#{scope}&amp;date_from=#{date_from}&amp;date_to=#{date_to}"
                                        t-attf-class="card h-100 text-decoration-none border #{'border-primary bg-primary-subtle' if not selected_employee_id else 'border-light bg-light'} p-3 rounded-3 transition-all shadow-sm">
                                         <div class="d-flex align-items-center gap-3">
                                             <div class="bg-primary text-white rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 42px; height: 42px;">
                                                 <i class="fa fa-users fa-lg"/>
                                             </div>
                                             <div>
-                                                <div class="fw-bold text-dark">All Subordinates</div>
+                                                <div class="fw-bold text-dark">All In Scope</div>
                                                 <small class="text-muted"><t t-out="len(subordinate_stats or [])"/> Team Members</small>
                                             </div>
                                         </div>
@@ -248,7 +336,7 @@
 
                                 <t t-foreach="subordinate_stats or []" t-as="sub">
                                     <div class="col-md-3 col-sm-6">
-                                        <a t-attf-href="/my/attendance_ot/to_approve?employee_id=#{sub['id']}&amp;filterby=#{filterby}&amp;date_from=#{date_from}&amp;date_to=#{date_to}"
+                                        <a t-attf-href="/my/attendance_ot/to_approve?employee_id=#{sub['id']}&amp;filterby=#{filterby}&amp;scope=#{scope}&amp;date_from=#{date_from}&amp;date_to=#{date_to}"
                                            t-attf-class="card h-100 text-decoration-none border #{'border-primary bg-primary-subtle shadow' if selected_employee_id == sub['id'] else 'border-light bg-white'} p-3 rounded-3 shadow-sm hover-shadow">
                                             <div class="d-flex justify-content-between align-items-start mb-2">
                                                 <div class="d-flex align-items-center gap-2">
@@ -285,21 +373,63 @@
                         <hr class="my-4"/>
 
                         <!-- Reports Filter & Table Header -->
-                        <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                             <h5 class="fw-bold text-secondary mb-0">
                                 <i class="fa fa-list-alt me-2"/>Attendance &amp; OT Reports List
                             </h5>
-                            <div class="btn-group">
-                                <button type="button" class="btn btn-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
-                                    Filter: <t t-out="filters[filterby]['label']"/>
-                                </button>
-                                <div class="dropdown-menu dropdown-menu-end">
-                                    <t t-foreach="filters" t-as="f">
-                                        <a t-attf-href="/my/attendance_ot/to_approve?sortby=#{sortby}&amp;filterby=#{f}&amp;date_from=#{date_from}&amp;date_to=#{date_to}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
-                                           t-attf-class="dropdown-item #{'active' if filterby == f else ''}">
-                                            <t t-out="filters[f]['label']"/>
-                                        </a>
-                                    </t>
+                            <div class="d-flex align-items-center gap-2">
+                                <t t-if="pending_approval_count &gt; 0">
+                                    <button type="button" class="btn btn-sm btn-success fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#batchApproveModal">
+                                        <i class="fa fa-check-circle me-1"/> Batch Approve (<t t-out="pending_approval_count"/>)
+                                    </button>
+                                </t>
+                                <div class="btn-group">
+                                    <button type="button" class="btn btn-secondary btn-sm dropdown-toggle shadow-none" data-bs-toggle="dropdown">
+                                        Filter: <t t-out="filters[filterby]['label']"/>
+                                    </button>
+                                    <div class="dropdown-menu dropdown-menu-end">
+                                        <t t-foreach="filters" t-as="f">
+                                            <a t-attf-href="/my/attendance_ot/to_approve?sortby=#{sortby}&amp;filterby=#{f}&amp;scope=#{scope}&amp;date_from=#{date_from}&amp;date_to=#{date_to}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}"
+                                               t-attf-class="dropdown-item #{'active' if filterby == f else ''}">
+                                                <t t-out="filters[f]['label']"/>
+                                            </a>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Batch Approve Modal -->
+                        <div class="modal fade" id="batchApproveModal" tabindex="-1" aria-labelledby="batchApproveModalLabel" aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-centered">
+                                <div class="modal-content border-0 shadow">
+                                    <form method="POST" action="/my/attendance_ot/batch_approve">
+                                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                        <input type="hidden" name="scope" t-att-value="scope"/>
+                                        <input type="hidden" name="date_from" t-att-value="date_from"/>
+                                        <input type="hidden" name="date_to" t-att-value="date_to"/>
+                                        <t t-if="selected_employee_id">
+                                            <input type="hidden" name="employee_id" t-att-value="selected_employee_id"/>
+                                        </t>
+                                        <div class="modal-header bg-success text-white">
+                                            <h5 class="modal-title fw-bold" id="batchApproveModalLabel">
+                                                <i class="fa fa-check-circle me-2"/>Confirm Batch Approval
+                                            </h5>
+                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body p-4 text-start">
+                                            <p class="mb-2">Are you sure you want to approve all <strong><t t-out="pending_approval_count"/></strong> submitted attendance &amp; OT report sheets in this period?</p>
+                                            <div class="alert alert-light border small text-muted mb-0">
+                                                <i class="fa fa-info-circle me-1"/> This action will validate the approved OT and deduction hours and synchronize them with each employee's salary contract.
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer bg-light">
+                                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                                            <button type="submit" class="btn btn-success btn-sm fw-bold px-3">
+                                                <i class="fa fa-check me-1"/> Yes, Batch Approve All
+                                            </button>
+                                        </div>
+                                    </form>
                                 </div>
                             </div>
                         </div>
@@ -350,15 +480,60 @@
                                                     <span t-if="s.state == 'approved'" class="badge bg-success">Approved</span>
                                                     <span t-if="s.state == 'rejected'" class="badge bg-danger">Rejected</span>
                                                 </td>
-                                                <td class="text-end">
-                                                    <a t-attf-href="/my/attendance_ot/#{s.id}" class="btn btn-primary btn-sm">
-                                                        <i class="fa fa-pencil me-1"/>Review &amp; Approve
+                                                <td class="text-end text-nowrap">
+                                                    <t t-if="s.state == 'submitted'">
+                                                        <form method="POST" t-attf-action="/my/attendance_ot/#{s.id}/quick_approve" class="d-inline">
+                                                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                                            <input type="hidden" name="redirect" t-attf-value="/my/attendance_ot/to_approve?scope=#{scope}&amp;date_from=#{date_from}&amp;date_to=#{date_to}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}&amp;filterby=#{filterby}"/>
+                                                            <button type="submit" class="btn btn-success btn-sm me-1 shadow-sm" title="Quick Approve Report">
+                                                                <i class="fa fa-check me-1"/>Approve
+                                                            </button>
+                                                        </form>
+                                                        <button type="button" class="btn btn-outline-danger btn-sm me-1 shadow-sm" data-bs-toggle="modal" t-attf-data-bs-target="#rejectModal_#{s.id}" title="Reject Report">
+                                                            <i class="fa fa-times me-1"/>Reject
+                                                        </button>
+                                                    </t>
+                                                    <a t-attf-href="/my/attendance_ot/#{s.id}" class="btn btn-primary btn-sm shadow-sm" title="Detailed Review &amp; Edit">
+                                                        <i class="fa fa-eye me-1"/>Review
                                                     </a>
+
+                                                    <!-- Rejection Modal for Sheet -->
+                                                    <div t-if="s.state == 'submitted'" class="modal fade" t-attf-id="rejectModal_#{s.id}" tabindex="-1" aria-hidden="true">
+                                                        <div class="modal-dialog modal-dialog-centered">
+                                                            <div class="modal-content border-0 shadow text-start">
+                                                                <form method="POST" t-attf-action="/my/attendance_ot/#{s.id}/quick_reject">
+                                                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                                                    <input type="hidden" name="redirect" t-attf-value="/my/attendance_ot/to_approve?scope=#{scope}&amp;date_from=#{date_from}&amp;date_to=#{date_to}#{'&amp;employee_id=' + str(selected_employee_id) if selected_employee_id else ''}&amp;filterby=#{filterby}"/>
+                                                                    <div class="modal-header bg-danger text-white">
+                                                                        <h5 class="modal-title fw-bold">Reject Attendance &amp; OT Sheet</h5>
+                                                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                                    </div>
+                                                                    <div class="modal-body p-4">
+                                                                        <p class="mb-3">Rejecting report for <strong><t t-out="s.employee_id.name"/></strong> (<t t-out="s.name"/>):</p>
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label fw-bold small text-muted">Rejection Reason (Required):</label>
+                                                                            <textarea name="rejection_reason" class="form-control" rows="3" placeholder="Provide feedback explaining why this report is rejected..." required="required"></textarea>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="modal-footer bg-light">
+                                                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                                                                        <button type="submit" class="btn btn-danger btn-sm fw-bold">
+                                                                            <i class="fa fa-times me-1"/> Confirm Rejection
+                                                                        </button>
+                                                                    </div>
+                                                                </form>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         </t>
                                     </tbody>
                                 </table>
+                            </div>
+                            <!-- Pagination -->
+                            <div t-if="pager.get('page_count', 0) &gt; 1" class="d-flex justify-content-center mt-3">
+                                <t t-call="portal.pager"/>
                             </div>
                         </t>
                     </div>

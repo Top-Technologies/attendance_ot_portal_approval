@@ -157,8 +157,8 @@ class HrPayslip(models.Model):
             slip.approved_absent_hours = absent_h
             slip.approved_absent_days = absent_d
 
-            # Calculate amounts using 176 working hours standard
-            work_hours = contract.monthly_working_hours or 176.0 if contract else 176.0
+            # Calculate amounts using standard working hours (default: 208.0 hours)
+            work_hours = contract.monthly_working_hours or 208.0 if contract else 208.0
             base_rate = contract.base_hourly_rate or ((contract.wage or 0.0) / work_hours if contract else 0.0)
             day_rate = contract.ot_day_rate or (base_rate * 1.5)
             night_rate = contract.ot_night_rate or (base_rate * 1.75)

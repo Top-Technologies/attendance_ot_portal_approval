@@ -38,8 +38,7 @@
                     <group>
                         <!-- Left Column: Rate & Working Hours Basis -->
                         <group string="Working Basis &amp; Rate">
-                            <field name="monthly_working_hours" string="Monthly Working Hours" readonly="1" groups="!base.group_system"/>
-                            <field name="monthly_working_hours" string="Monthly Working Hours" groups="base.group_system"/>
+                            <field name="monthly_working_hours" string="Monthly Working Hours" groups="hr.group_hr_user,base.group_system"/>
                             <field name="base_hourly_rate" string="Base Hourly Rate" decoration-bf="1" decoration-info="base_hourly_rate &gt; 0"/>
                         </group>
                         <!-- Right Column: Calculated Monthly Totals -->

@@ -30,41 +30,43 @@
             <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
         </record>
 
-        <!-- Subordinate Manager Rule: View and manage subordinate sheets only (never self) -->
+        <!-- Subordinate Manager Rule: View and manage subordinate sheets only (never self, never unassigned) -->
         <record id="attendance_ot_sheet_subordinate_manager_rule" model="ir.rule">
             <field name="name">Attendance OT Sheet: Subordinate Manager Rule</field>
             <field name="model_id" ref="model_attendance_ot_approval_sheet"/>
             <field name="domain_force">[
                 ('employee_id', 'not in', user.employee_ids.ids),
                 ('employee_id.user_id', '!=', user.id),
-                '|', '|', '|',
+                ('employee_id.parent_id', '!=', False),
+                '|',
                 ('employee_id', 'child_of', user.employee_ids.ids),
-                ('employee_id.parent_id.user_id', '=', user.id),
-                ('employee_id.leave_manager_id', '=', user.id),
-                ('manager_id.user_id', '=', user.id)
+                ('employee_id.parent_id.user_id', '=', user.id)
             ]</field>
             <field name="groups" eval="[(4, ref('base.group_user'))]"/>
         </record>
 
-        <!-- Officer / Admin Rule: View all sheets -->
+        <!-- Officer / Admin Rule: View all sheets (Only for HR Admins / ZKTeco Admins) -->
         <record id="attendance_ot_sheet_officer_rule" model="ir.rule">
             <field name="name">Attendance OT Sheet: Officer View All</field>
             <field name="model_id" ref="model_attendance_ot_approval_sheet"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_attendance_ot_user')), (4, ref('zkteco_attendance.group_zkteco_admin'))]"/>
+            <field name="groups" eval="[(4, ref('group_attendance_ot_manager')), (4, ref('zkteco_attendance.group_zkteco_admin'))]"/>
         </record>
 
-        <!-- Portal User Rule: View own sheets and subordinate sheets -->
+        <!-- Portal User Rule: View own sheets and subordinate subtree sheets (never unassigned) -->
         <record id="attendance_ot_sheet_portal_rule" model="ir.rule">
             <field name="name">Attendance OT Sheet: Portal User Rule</field>
             <field name="model_id" ref="model_attendance_ot_approval_sheet"/>
             <field name="domain_force">[
-                '|', '|', '|', '|',
+                '|',
                 ('employee_id.user_id', '=', user.id),
+                '&amp;',
+                ('employee_id', 'not in', user.employee_ids.ids),
+                '&amp;',
+                ('employee_id.parent_id', '!=', False),
+                '|',
                 ('employee_id', 'child_of', user.employee_ids.ids),
-                ('employee_id.parent_id.user_id', '=', user.id),
-                ('employee_id.leave_manager_id', '=', user.id),
-                ('manager_id.user_id', '=', user.id)
+                ('employee_id.parent_id.user_id', '=', user.id)
             ]</field>
             <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
         </record>
@@ -76,18 +78,17 @@
             <field name="domain_force">['|', ('sheet_id.company_id', '=', False), ('sheet_id.company_id', 'in', company_ids)]</field>
         </record>
 
-        <!-- Subordinate Manager Rule for Line: Subordinates only (never self) -->
+        <!-- Subordinate Manager Rule for Line: Subordinates only (never self, never unassigned) -->
         <record id="attendance_ot_line_subordinate_manager_rule" model="ir.rule">
             <field name="name">Attendance OT Line: Subordinate Manager Rule</field>
             <field name="model_id" ref="model_attendance_ot_approval_line"/>
             <field name="domain_force">[
                 ('sheet_id.employee_id', 'not in', user.employee_ids.ids),
                 ('sheet_id.employee_id.user_id', '!=', user.id),
-                '|', '|', '|',
+                ('sheet_id.employee_id.parent_id', '!=', False),
+                '|',
                 ('sheet_id.employee_id', 'child_of', user.employee_ids.ids),
-                ('sheet_id.employee_id.parent_id.user_id', '=', user.id),
-                ('sheet_id.employee_id.leave_manager_id', '=', user.id),
-                ('sheet_id.manager_id.user_id', '=', user.id)
+                ('sheet_id.employee_id.parent_id.user_id', '=', user.id)
             ]</field>
             <field name="groups" eval="[(4, ref('base.group_user'))]"/>
         </record>
@@ -97,7 +98,7 @@
             <field name="name">Attendance OT Line: Officer View All</field>
             <field name="model_id" ref="model_attendance_ot_approval_line"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_attendance_ot_user')), (4, ref('zkteco_attendance.group_zkteco_admin'))]"/>
+            <field name="groups" eval="[(4, ref('group_attendance_ot_manager')), (4, ref('zkteco_attendance.group_zkteco_admin'))]"/>
         </record>
 
         <!-- Portal User Rule for Line -->
@@ -105,12 +106,15 @@
             <field name="name">Attendance OT Line: Portal User Rule</field>
             <field name="model_id" ref="model_attendance_ot_approval_line"/>
             <field name="domain_force">[
-                '|', '|', '|', '|',
+                '|',
                 ('sheet_id.employee_id.user_id', '=', user.id),
+                '&amp;',
+                ('sheet_id.employee_id', 'not in', user.employee_ids.ids),
+                '&amp;',
+                ('sheet_id.employee_id.parent_id', '!=', False),
+                '|',
                 ('sheet_id.employee_id', 'child_of', user.employee_ids.ids),
-                ('sheet_id.employee_id.parent_id.user_id', '=', user.id),
-                ('sheet_id.employee_id.leave_manager_id', '=', user.id),
-                ('sheet_id.manager_id.user_id', '=', user.id)
+                ('sheet_id.employee_id.parent_id.user_id', '=', user.id)
             ]</field>
             <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
         </record>

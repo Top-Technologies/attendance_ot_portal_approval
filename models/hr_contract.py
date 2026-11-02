@@ -1,6 +1,8 @@
-# -*- coding: utf-8 -*-
+import logging
 from odoo import models, fields, api, _
 from odoo.exceptions import AccessError
+
+_logger = logging.getLogger(__name__)
 
 
 
@@ -56,10 +58,10 @@ class HrContract(models.Model):
     # Working Hours & Hourly Rates per Category
     monthly_working_hours = fields.Float(
         string='Monthly Working Hours',
-        default=176.0,
+        default=208.0,
         digits=(16, 2),
         tracking=True,
-        help='Standard monthly working hours used to calculate hourly rates (Default: 176.0 hours).',
+        help='Standard monthly working hours used to calculate hourly rates (Default: 208.0 hours).',
     )
     base_hourly_rate = fields.Float(
         string='Base Hourly Rate (Birr/hr)',
@@ -67,7 +69,7 @@ class HrContract(models.Model):
         store=True,
         readonly=False,
         digits=(16, 2),
-        help='Base hourly wage calculated as basic contract wage divided by monthly working hours (176.0 hrs).',
+        help='Base hourly wage calculated as basic contract wage divided by monthly working hours (208.0 hrs).',
     )
     ot_day_rate = fields.Float(
         string='Day OT Rate (1.5x)',
@@ -181,7 +183,7 @@ class HrContract(models.Model):
     def _compute_hourly_rates(self):
         for contract in self:
             base = contract.wage or 0.0
-            work_hours = contract.monthly_working_hours or 176.0
+            work_hours = contract.monthly_working_hours or 208.0
             hourly = (base / work_hours) if (base > 0 and work_hours > 0) else 0.0
             contract.base_hourly_rate = hourly
             contract.ot_day_rate = hourly * 1.5
@@ -239,10 +241,25 @@ class HrContract(models.Model):
             'approved_absent_days': 0,
         })
 
+    def init(self):
+        super().init()
+        try:
+            with self.env.cr.savepoint(flush=False):
+                self.env.cr.execute("""
+                    UPDATE hr_contract
+                    SET monthly_working_hours = 208.0
+                    WHERE monthly_working_hours = 176.0 OR monthly_working_hours IS NULL;
+                """)
+        except Exception as e:
+            _logger.warning("HrContract.init() monthly_working_hours update warning: %s", e)
+
     def write(self, vals):
         if 'monthly_working_hours' in vals:
-            if not self.env.user.has_group('base.group_system') and not self.env.is_superuser():
-                raise AccessError(_("Only System Administrators can modify the Monthly Working Hours on employee contracts."))
+            if not (self.env.user.has_group('base.group_system') or 
+                    self.env.user.has_group('hr.group_hr_user') or 
+                    self.env.user.has_group('hr.group_hr_manager') or 
+                    self.env.is_superuser()):
+                raise AccessError(_("You do not have permission to modify the Monthly Working Hours on employee contracts."))
         return super().write(vals)
 
 

@@ -207,6 +207,7 @@
                 <filter string="Rejected" name="rejected" domain="[('state', '=', 'rejected')]"/>
                 <separator/>
                 <filter string="My Subordinates" name="my_subordinates" domain="['|', ('manager_id.user_id', '=', uid), ('employee_id.parent_id.user_id', '=', uid)]"/>
+                <filter string="Unassigned Employees" name="unassigned_employees" domain="[('employee_id.parent_id', '=', False)]" groups="attendance_ot_portal_approval.group_attendance_ot_manager,zkteco_attendance.group_zkteco_admin"/>
                 <filter string="My Sheets" name="my_sheets" domain="[('employee_id.user_id', '=', uid)]"/>
                 <group expand="0" string="Group By">
                     <filter string="Employee" name="group_employee" context="{'group_by': 'employee_id'}"/>

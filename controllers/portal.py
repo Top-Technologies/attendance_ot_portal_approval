@@ -9,36 +9,88 @@ from odoo.osv import expression
 
 class AttendanceOtCustomerPortal(CustomerPortal):
 
+    def _is_attendance_hr_admin(self, user=None):
+        """Check if user has HR Officer/Admin permissions to manage company-wide or unassigned attendance sheets."""
+        if user is None:
+            user = request.env.user
+        return bool(
+            request.env.is_superuser()
+            or user.has_group('base.group_system')
+            or user.has_group('attendance_ot_portal_approval.group_attendance_ot_manager')
+            or user.has_group('hr.group_hr_manager')
+            or user.has_group('zkteco_attendance.group_zkteco_admin')
+        )
+
+    def _get_manageable_subordinates(self, user, employee, scope='team'):
+        """
+        Return the hr.employee recordset of manageable subordinates for the current user.
+        - HR / System Admins: Can oversee all employees or unassigned employees.
+        - Regular Managers: STRICTLY subordinates in their recursive reporting hierarchy (full subtree).
+          Unassigned employees (parent_id = False) and cross-team employees are NEVER returned.
+          The manager themselves is excluded.
+        """
+        is_hr_admin = self._is_attendance_hr_admin(user)
+
+        if is_hr_admin:
+            if scope == 'unassigned':
+                return request.env['hr.employee'].sudo().search([
+                    ('active', '=', True),
+                    ('parent_id', '=', False),
+                ])
+            elif scope == 'all':
+                return request.env['hr.employee'].sudo().search([
+                    ('active', '=', True),
+                ])
+            elif employee:
+                # Direct & indirect subordinates of this HR user
+                sub_ids = employee._get_subordinate_hierarchy_ids(include_self=False)
+                if sub_ids:
+                    return request.env['hr.employee'].sudo().browse(list(sub_ids)).filtered(lambda e: e.active)
+                return request.env['hr.employee'].sudo().search([('active', '=', True)])
+            else:
+                return request.env['hr.employee'].sudo().search([('active', '=', True)])
+
+        if not employee:
+            return request.env['hr.employee']
+
+        # Regular Manager: full recursive subtree, strictly assigned subordinates only
+        sub_ids = employee._get_subordinate_hierarchy_ids(include_self=False)
+        if not sub_ids:
+            return request.env['hr.employee']
+
+        subordinates = request.env['hr.employee'].sudo().browse(list(sub_ids)).filtered(
+            lambda e: e.active and bool(e.parent_id) and e.id != employee.id
+        )
+        return subordinates
+
     def _prepare_home_portal_values(self, counters):
         values = super()._prepare_home_portal_values(counters)
         user = request.env.user
         employee = self._get_current_employee()
+        Sheet = request.env['attendance.ot.approval.sheet'].sudo()
 
         if employee:
-            Sheet = request.env['attendance.ot.approval.sheet'].sudo()
             values['attendance_ot_count'] = Sheet.search_count([('employee_id', '=', employee.id)])
-
-            # Subordinate check
-            subordinates = request.env['hr.employee'].sudo().search([
-                '|', '|', '|',
-                ('parent_id', '=', employee.id),
-                ('leave_manager_id', '=', user.id),
-                ('time_off_officer_id', '=', user.id),
-                ('department_id.manager_id', '=', employee.id)
-            ])
-            values['is_attendance_ot_manager'] = bool(subordinates)
-            if subordinates:
-                Sheet._ensure_subordinate_sheets(subordinates)
-                values['attendance_ot_to_approve_count'] = Sheet.search_count([
-                    ('employee_id', 'in', subordinates.ids),
-                    ('state', '=', 'submitted'),
-                ])
-            else:
-                values['attendance_ot_to_approve_count'] = 0
         else:
             values['attendance_ot_count'] = 0
+
+        is_hr_admin = self._is_attendance_hr_admin(user)
+        subordinates = self._get_manageable_subordinates(user, employee, scope='team' if not is_hr_admin else 'all')
+        is_manager = bool(subordinates) or is_hr_admin
+        values['is_attendance_ot_manager'] = is_manager
+
+        if is_manager and subordinates:
+            Sheet._ensure_subordinate_sheets(subordinates)
+            values['attendance_ot_to_approve_count'] = Sheet.search_count([
+                ('employee_id', 'in', subordinates.ids),
+                ('state', '=', 'submitted'),
+            ])
+        elif is_hr_admin:
+            values['attendance_ot_to_approve_count'] = Sheet.search_count([
+                ('state', '=', 'submitted'),
+            ])
+        else:
             values['attendance_ot_to_approve_count'] = 0
-            values['is_attendance_ot_manager'] = False
 
         return values
 
@@ -60,23 +112,27 @@ class AttendanceOtCustomerPortal(CustomerPortal):
 
         user = request.env.user
         employee = self._get_current_employee()
+        is_hr_admin = self._is_attendance_hr_admin(user)
 
         is_owner = employee and sheet.employee_id.id == employee.id
-        is_manager = employee and (
-            getattr(employee, 'is_portal_attendance_manager', False) or
-            sheet.employee_id.parent_id.id == employee.id or
-            sheet.employee_id.leave_manager_id.id == user.id or
-            sheet.manager_id.id == employee.id or
-            sheet.manager_id.user_id.id == user.id
-        )
-        is_officer = user.has_group('hr.group_hr_user') or user.has_group('base.group_system')
 
-        if mode == 'read':
-            if not (is_owner or is_manager or is_officer):
-                raise Forbidden(_("You do not have access to view this attendance OT sheet."))
-        elif mode == 'approve':
-            if not (is_manager or is_officer):
-                raise Forbidden(_("You do not have permission to approve or reject this sheet."))
+        # Disallow self-approval / self-rejection strictly
+        if mode == 'approve' and is_owner:
+            raise Forbidden(_("You cannot approve, reject, or adjust your own attendance OT sheet. Approvals must come from your manager."))
+
+        # Unassigned employee sheets (no manager): Only HR / Admins can read or approve
+        if not sheet.employee_id.parent_id:
+            if not is_hr_admin:
+                raise Forbidden(_("Unassigned employee sheets can only be reviewed or approved by HR or System Administrators."))
+            return sheet
+
+        # Assigned employee sheets:
+        if is_hr_admin:
+            return sheet
+
+        # Regular manager check: Employee must be strictly in manager's reporting line
+        if not employee or not employee.is_in_subordinate_hierarchy(sheet.employee_id):
+            raise Forbidden(_("Access Denied: You do not have permission to view or approve attendance sheets outside your reporting line."))
 
         return sheet
 
@@ -151,21 +207,22 @@ class AttendanceOtCustomerPortal(CustomerPortal):
     # -------------------------------------------------------------------------
 
     @http.route(['/my/attendance_ot/to_approve', '/my/attendance_ot/to_approve/page/<int:page>'], type='http', auth='user', website=True)
-    def portal_my_attendance_ot_to_approve(self, page=1, filterby=None, sortby=None, employee_id=None, date_from=None, date_to=None, **kw):
+    def portal_my_attendance_ot_to_approve(self, page=1, filterby=None, sortby=None, employee_id=None, date_from=None, date_to=None, scope='team', **kw):
+        user = request.env.user
         employee = self._get_current_employee()
-        if not employee:
+        is_hr_admin = self._is_attendance_hr_admin(user)
+
+        if not employee and not is_hr_admin:
             return request.render('time_off_portal_exposure.portal_no_employee_linked', {
                 'page_name': 'attendance_ot_no_employee'
             })
 
-        subordinates = request.env['hr.employee'].sudo().search([
-            '|', '|', '|',
-            ('parent_id', '=', employee.id),
-            ('leave_manager_id', '=', request.env.uid),
-            ('time_off_officer_id', '=', request.env.uid),
-            ('department_id.manager_id', '=', employee.id)
-        ])
-        if not subordinates:
+        # Scope enforcement: Regular managers are strictly restricted to 'team' (their own reporting subtree)
+        if not is_hr_admin:
+            scope = 'team'
+
+        subordinates = self._get_manageable_subordinates(user, employee, scope=scope)
+        if not subordinates and not is_hr_admin:
             return request.render('time_off_portal_exposure.portal_not_a_manager', {
                 'page_name': 'attendance_ot_not_manager'
             })
@@ -193,31 +250,70 @@ class AttendanceOtCustomerPortal(CustomerPortal):
         else:
             selected_date_to = def_date_to
 
-        # Automatically ensure all subordinates with attendance/OT records have sheets in submitted state for this range
-        Sheet._ensure_subordinate_sheets(subordinates, date_from=selected_date_from, date_to=selected_date_to)
+        # Automatically ensure sheets exist in submitted state for subordinates in this range
+        if subordinates:
+            Sheet._ensure_subordinate_sheets(subordinates, date_from=selected_date_from, date_to=selected_date_to)
 
-        # Build Subordinate Employees Statistics strictly for the selected date range
-        subordinate_stats = []
-        for sub in subordinates:
-            sub_sheets = Sheet.search([
-                ('employee_id', '=', sub.id),
+        sub_ids = subordinates.ids if subordinates else []
+
+        # ---------------------------------------------------------------------
+        # FAST BATCH AGGREGATION: Single DB queries instead of N+1 loops
+        # ---------------------------------------------------------------------
+        if sub_ids:
+            all_sub_sheets = Sheet.search([
+                ('employee_id', 'in', sub_ids),
                 ('date_from', '<=', selected_date_to),
                 ('date_to', '>=', selected_date_from),
             ])
-            pending_sheets = sub_sheets.filtered(lambda s: s.state == 'submitted')
-            pending_cnt = len(pending_sheets)
-            approved_ot = sum(sub_sheets.mapped('total_approved_ot_hours'))
-            raw_ot = sum(sub_sheets.mapped('total_raw_ot_hours'))
-            unapproved_late = sum(sub_sheets.mapped('total_approved_late_hours'))
+            all_att_records = request.env['zkteco.attendance.record'].sudo().search([
+                ('employee_id', 'in', sub_ids),
+                ('date', '>=', selected_date_from),
+                ('date', '<=', selected_date_to),
+            ])
+        else:
+            all_sub_sheets = Sheet.browse()
+            all_att_records = request.env['zkteco.attendance.record'].sudo().browse()
 
-            # Check attendance records directly for this date range if raw_ot is 0
-            if not sub_sheets or raw_ot == 0.0:
-                rec_ot = sum(request.env['zkteco.attendance.record'].sudo().search([
-                    ('employee_id', '=', sub.id),
-                    ('date', '>=', selected_date_from),
-                    ('date', '<=', selected_date_to),
-                ]).mapped('overtime_hours'))
-                raw_ot = max(raw_ot, rec_ot)
+        # Group sheets and attendance records by employee_id for O(1) in-memory lookups
+        sheets_by_emp = {}
+        for s in all_sub_sheets:
+            sheets_by_emp.setdefault(s.employee_id.id, []).append(s)
+
+        att_by_emp = {}
+        for rec in all_att_records:
+            att_by_emp.setdefault(rec.employee_id.id, []).append(rec)
+
+        # Team Summary Metrics scoped strictly to viewer's manageable team
+        present_emp_ids = {r.employee_id.id for r in all_att_records if r.status == 'present'}
+        absent_emp_ids = {r.employee_id.id for r in all_att_records if r.status == 'absent'}
+        late_emp_ids = {r.employee_id.id for r in all_att_records if r.is_late}
+        on_leave_emp_ids = {r.employee_id.id for r in all_att_records if r.status == 'on_leave'}
+
+        pending_approval_count = len([s for s in all_sub_sheets if s.state == 'submitted'])
+
+        team_metrics = {
+            'total_team': len(subordinates),
+            'present_count': len(present_emp_ids),
+            'absent_count': len(absent_emp_ids),
+            'late_count': len(late_emp_ids),
+            'on_leave_count': len(on_leave_emp_ids),
+            'pending_count': pending_approval_count,
+            'total_raw_ot': sum(all_sub_sheets.mapped('total_raw_ot_hours')),
+            'total_approved_ot': sum(all_sub_sheets.mapped('total_approved_ot_hours')),
+            'total_deduction_hours': sum(all_sub_sheets.mapped('total_approved_late_hours')),
+        }
+
+        # Build Subordinate Statistics in memory
+        subordinate_stats = []
+        for sub in subordinates:
+            emp_sheets = sheets_by_emp.get(sub.id, [])
+            pending_cnt = len([s for s in emp_sheets if s.state == 'submitted'])
+            approved_ot = sum(s.total_approved_ot_hours for s in emp_sheets)
+            raw_ot = sum(s.total_raw_ot_hours for s in emp_sheets)
+            unapproved_late = sum(s.total_approved_late_hours for s in emp_sheets)
+
+            if raw_ot == 0.0 and sub.id in att_by_emp:
+                raw_ot = sum(r.overtime_hours or 0.0 for r in att_by_emp[sub.id])
 
             subordinate_stats.append({
                 'id': sub.id,
@@ -225,8 +321,9 @@ class AttendanceOtCustomerPortal(CustomerPortal):
                 'code': getattr(sub, 'fms_employee_id', False) or sub.name[:3].upper(),
                 'job': sub.job_title or (sub.job_id.name if sub.job_id else 'Employee'),
                 'department': sub.department_id.name if sub.department_id else 'General',
+                'parent_name': sub.parent_id.name if sub.parent_id else _('Unassigned'),
                 'pending_count': pending_cnt,
-                'total_sheets': len(sub_sheets),
+                'total_sheets': len(emp_sheets),
                 'raw_ot': raw_ot,
                 'approved_ot': approved_ot,
                 'unapproved_late': unapproved_late,
@@ -251,10 +348,10 @@ class AttendanceOtCustomerPortal(CustomerPortal):
             filterby = 'pending'
 
         selected_employee_id = int(employee_id) if employee_id and str(employee_id).isdigit() else None
-        if selected_employee_id and selected_employee_id in subordinates.ids:
+        if selected_employee_id and selected_employee_id in sub_ids:
             base_domain = [('employee_id', '=', selected_employee_id)]
         else:
-            base_domain = [('employee_id', 'in', subordinates.ids)]
+            base_domain = [('employee_id', 'in', sub_ids)]
             selected_employee_id = None
 
         date_domain = [
@@ -267,6 +364,7 @@ class AttendanceOtCustomerPortal(CustomerPortal):
         url_args = {
             'sortby': sortby,
             'filterby': filterby,
+            'scope': scope,
             'date_from': selected_date_from.strftime('%Y-%m-%d'),
             'date_to': selected_date_to.strftime('%Y-%m-%d'),
         }
@@ -283,13 +381,6 @@ class AttendanceOtCustomerPortal(CustomerPortal):
 
         sheets = Sheet.search(domain, order=order, limit=10, offset=pager['offset'])
 
-        pending_approval_count = Sheet.search_count([
-            ('employee_id', 'in', subordinates.ids),
-            ('state', '=', 'submitted'),
-            ('date_from', '<=', selected_date_to),
-            ('date_to', '>=', selected_date_from),
-        ])
-
         # Date preset options
         today = fields.Date.today()
         cycle_from, cycle_to = Sheet._get_default_payroll_period(today)
@@ -304,10 +395,13 @@ class AttendanceOtCustomerPortal(CustomerPortal):
         values = {
             'page_name': 'attendance_ot_to_approve',
             'employee': employee,
+            'is_hr_admin': is_hr_admin,
+            'scope': scope,
             'subordinates': subordinates,
             'subordinate_stats': subordinate_stats,
             'selected_employee_id': selected_employee_id,
             'sheets': sheets,
+            'team_metrics': team_metrics,
             'pending_approval_count': pending_approval_count,
             'pager': pager,
             'sortby': sortby,
@@ -317,6 +411,7 @@ class AttendanceOtCustomerPortal(CustomerPortal):
             'date_from': selected_date_from.strftime('%Y-%m-%d'),
             'date_to': selected_date_to.strftime('%Y-%m-%d'),
             'presets': {
+                'today': today.strftime('%Y-%m-%d'),
                 'cycle_from': cycle_from.strftime('%Y-%m-%d'),
                 'cycle_to': cycle_to.strftime('%Y-%m-%d'),
                 'cal_month_from': cal_month_from.strftime('%Y-%m-%d'),
@@ -462,20 +557,63 @@ class AttendanceOtCustomerPortal(CustomerPortal):
             return request.redirect('/my/attendance_ot/to_approve?reopened=1')
         return request.redirect(f'/my/attendance_ot/{sheet_id}?reopened=1')
 
-    @http.route(['/my/attendance_ot/<int:sheet_id>/update_period'], type='http', auth='user', methods=['POST'], website=True, csrf=True)
-    def portal_my_attendance_ot_update_period(self, sheet_id, date_from=None, date_to=None, **post):
+    @http.route(['/my/attendance_ot/<int:sheet_id>/quick_approve'], type='http', auth='user', methods=['POST'], website=True, csrf=True)
+    def portal_my_attendance_ot_quick_approve(self, sheet_id, **post):
         sheet = self._check_sheet_access(sheet_id, mode='approve')
-        if sheet.state in ('draft', 'submitted') and date_from and date_to:
+        sheet.action_approve()
+        redirect_url = post.get('redirect_url') or '/my/attendance_ot/to_approve?approved=1'
+        return request.redirect(redirect_url)
+
+    @http.route(['/my/attendance_ot/<int:sheet_id>/quick_reject'], type='http', auth='user', methods=['POST'], website=True, csrf=True)
+    def portal_my_attendance_ot_quick_reject(self, sheet_id, rejection_reason=None, **post):
+        sheet = self._check_sheet_access(sheet_id, mode='approve')
+        if rejection_reason:
+            sheet.rejection_reason = rejection_reason.strip()
+        sheet.action_reject()
+        redirect_url = post.get('redirect_url') or '/my/attendance_ot/to_approve?rejected=1'
+        return request.redirect(redirect_url)
+
+    @http.route(['/my/attendance_ot/batch_approve'], type='http', auth='user', methods=['POST'], website=True, csrf=True)
+    def portal_my_attendance_ot_batch_approve(self, date_from=None, date_to=None, employee_id=None, scope='team', **post):
+        user = request.env.user
+        employee = self._get_current_employee()
+        is_hr_admin = self._is_attendance_hr_admin(user)
+        if not is_hr_admin:
+            scope = 'team'
+
+        subordinates = self._get_manageable_subordinates(user, employee, scope=scope)
+        if not subordinates and not is_hr_admin:
+            return request.redirect('/my/attendance_ot/to_approve')
+
+        Sheet = request.env['attendance.ot.approval.sheet'].sudo()
+        domain = [('state', '=', 'submitted')]
+        if subordinates:
+            domain.append(('employee_id', 'in', subordinates.ids))
+        if date_from:
             try:
                 d_from = fields.Date.from_string(date_from)
-                d_to = fields.Date.from_string(date_to)
-                if d_from and d_to and d_from <= d_to:
-                    sheet.write({
-                        'date_from': d_from,
-                        'date_to': d_to,
-                        'period_type': 'custom',
-                    })
-                    sheet.action_fetch_attendance_records()
+                domain.append(('date_to', '>=', d_from))
             except Exception:
                 pass
-        return request.redirect(f'/my/attendance_ot/{sheet_id}?period_updated=1')
+        if date_to:
+            try:
+                d_to = fields.Date.from_string(date_to)
+                domain.append(('date_from', '<=', d_to))
+            except Exception:
+                pass
+        if employee_id and str(employee_id).isdigit():
+            emp_id = int(employee_id)
+            if emp_id in subordinates.ids:
+                domain.append(('employee_id', '=', emp_id))
+
+        sheets_to_approve = Sheet.search(domain)
+        count = 0
+        for sheet in sheets_to_approve:
+            try:
+                self._check_sheet_access(sheet.id, mode='approve')
+                sheet.action_approve()
+                count += 1
+            except Exception:
+                continue
+
+        return request.redirect(f'/my/attendance_ot/to_approve?batch_approved={count}')

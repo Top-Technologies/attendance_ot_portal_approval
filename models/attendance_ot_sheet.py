@@ -226,6 +226,9 @@ class AttendanceOtApprovalSheet(models.Model):
     @api.depends('employee_id', 'employee_id.parent_id', 'employee_id.leave_manager_id')
     def _compute_manager_id(self):
         for sheet in self:
+            # Preserve historic manager assignment on already finalized sheets
+            if sheet.state in ('approved', 'rejected') and sheet.manager_id:
+                continue
             if sheet.employee_id:
                 leave_mgr_emp = sheet.employee_id.leave_manager_id.employee_id if sheet.employee_id.leave_manager_id else False
                 sheet.manager_id = sheet.employee_id.parent_id or leave_mgr_emp or False
@@ -244,30 +247,51 @@ class AttendanceOtApprovalSheet(models.Model):
             else:
                 sheet.contract_id = False
 
-    @api.depends_context('uid')
-    @api.depends('employee_id', 'manager_id', 'state')
-    def _compute_can_approve(self):
-        is_admin = (
-            self.env.user.has_group('zkteco_attendance.group_zkteco_admin')
-            or self.env.user.has_group('attendance_ot_portal_approval.group_attendance_ot_manager')
-            or self.env.is_superuser()
+    def _is_attendance_hr_admin(self, user=None):
+        """Return True if user is an HR / System Administrator authorized to oversee all employee sheets."""
+        if user is None:
+            user = self.env.user
+        return bool(
+            user._is_superuser()
+            or user.has_group('base.group_system')
+            or user.has_group('attendance_ot_portal_approval.group_attendance_ot_manager')
+            or user.has_group('hr.group_hr_manager')
+            or user.has_group('zkteco_attendance.group_zkteco_admin')
         )
+
+    @api.depends_context('uid')
+    @api.depends('employee_id', 'employee_id.parent_id', 'manager_id', 'state')
+    def _compute_can_approve(self):
+        is_hr_admin = self._is_attendance_hr_admin()
+        current_user = self.env.user
+        user_emp = current_user.employee_id or (current_user.employee_ids[0] if current_user.employee_ids else False)
+
         for sheet in self:
             if sheet.state not in ('draft', 'submitted'):
                 sheet.can_approve = False
-            elif is_admin:
+                continue
+
+            # Strict Rule: Disallow self-approval under all circumstances
+            if (sheet.employee_id.user_id and sheet.employee_id.user_id == current_user) or (user_emp and sheet.employee_id.id == user_emp.id):
+                sheet.can_approve = False
+                continue
+
+            # Unassigned employees (no manager) must NEVER appear in a manager's approval flow.
+            # Only HR/Admin roles are permitted to approve unassigned employees.
+            if not sheet.employee_id.parent_id:
+                sheet.can_approve = is_hr_admin
+                continue
+
+            # HR / Admin users can approve any assigned sheet (except self)
+            if is_hr_admin:
                 sheet.can_approve = True
-            elif sheet.employee_id.user_id == self.env.user:
-                # Disallow self-approval if manager is assigned
-                sheet.can_approve = not bool(sheet.employee_id.parent_id or sheet.employee_id.leave_manager_id)
+                continue
+
+            # Regular Managers: Must strictly be within their own reporting line (direct or recursive subtree)
+            if user_emp:
+                sheet.can_approve = user_emp.is_in_subordinate_hierarchy(sheet.employee_id)
             else:
-                user_emp_ids = self.env.user.employee_ids.ids
-                sheet.can_approve = bool(
-                    sheet.manager_id.user_id == self.env.user
-                    or sheet.employee_id.parent_id.user_id == self.env.user
-                    or sheet.employee_id.leave_manager_id == self.env.user
-                    or sheet.employee_id.id in self.env['hr.employee'].search([('id', 'child_of', user_emp_ids)]).ids
-                )
+                sheet.can_approve = False
 
     @api.depends(
         'line_ids',
@@ -480,30 +504,42 @@ class AttendanceOtApprovalSheet(models.Model):
             sheet.state = 'submitted'
             sheet._safe_message_post(_("Attendance OT & Absent sheet submitted for manager approval."))
 
-    def action_approve(self):
-        is_admin = (
-            self.env.user.has_group('zkteco_attendance.group_zkteco_admin')
-            or self.env.user.has_group('attendance_ot_portal_approval.group_attendance_ot_manager')
-            or self.env.is_superuser()
-        )
-        for sheet in self:
-            if not is_admin:
-                # Disallow self-approval when the employee has an assigned supervisor/manager
-                if sheet.employee_id.user_id == self.env.user and (sheet.employee_id.parent_id or sheet.employee_id.leave_manager_id):
-                    raise UserError(_("You cannot approve your own attendance & overtime sheet. It must be approved by your manager."))
-                
-                # Check that employee is within user's direct or indirect subordinates
-                user_emp_ids = self.env.user.employee_ids.ids
-                allowed_emps = self.env['hr.employee'].search([
-                    '|', '|', '|',
-                    ('id', 'child_of', user_emp_ids),
-                    ('parent_id.user_id', '=', self.env.user.id),
-                    ('leave_manager_id', '=', self.env.user.id),
-                    ('id', 'in', user_emp_ids),
-                ])
-                if sheet.employee_id not in allowed_emps:
-                    raise UserError(_("You can only approve attendance and overtime sheets for employees reporting to you."))
+    def _check_approval_permission(self):
+        """
+        Validate whether the current user is authorized to approve, reject, or reopen this sheet.
+        Server-side Enforcement Rules:
+        1. Self-approval is strictly forbidden under all circumstances.
+        2. Unassigned employees (parent_id = False) can ONLY be acted on by HR / System Administrators.
+        3. Regular managers can ONLY act on employees strictly within their subordinate reporting hierarchy
+           (direct reports + indirect subtree descendants). Cross-team attempts raise UserError.
+        """
+        self.ensure_one()
+        is_hr_admin = self._is_attendance_hr_admin()
+        current_user = self.env.user
+        user_emp = current_user.employee_id or (current_user.employee_ids[0] if current_user.employee_ids else False)
 
+        # 1. Disallow self-action
+        if (self.employee_id.user_id and self.employee_id.user_id == current_user) or (user_emp and self.employee_id.id == user_emp.id):
+            raise UserError(_("You cannot approve, reject, or adjust your own attendance & overtime sheet. Approvals must be processed by your manager."))
+
+        # 2. Unassigned employees: HR / Admin only
+        if not self.employee_id.parent_id:
+            if not is_hr_admin:
+                raise UserError(_("Employee %s is not assigned to any manager. Unassigned employee sheets can only be reviewed, approved, or rejected by HR or System Administrators.") % self.employee_id.name)
+            return True
+
+        # 3. Assigned employees: HR / Admin or Reporting Hierarchy Manager
+        if is_hr_admin:
+            return True
+
+        if not user_emp or not user_emp.is_in_subordinate_hierarchy(self.employee_id):
+            raise UserError(_("Access Denied: You can only approve or reject attendance sheets for employees reporting directly or indirectly under your supervision."))
+
+        return True
+
+    def action_approve(self):
+        for sheet in self:
+            sheet._check_approval_permission()
             sheet.state = 'approved'
             sheet.approved_by_id = self.env.uid
             sheet.approval_date = fields.Datetime.now()
@@ -524,25 +560,25 @@ class AttendanceOtApprovalSheet(models.Model):
                 sheet.total_approved_late_hours
             ))
 
+    def action_batch_approve(self):
+        """Batch-approve all eligible submitted sheets in the recordset."""
+        submitted_sheets = self.filtered(lambda s: s.state == 'submitted')
+        for sheet in submitted_sheets:
+            sheet.action_approve()
+        return len(submitted_sheets)
+
     def action_generate_subordinate_sheets(self):
         """Action for managers in backend to generate/refresh approval sheets for all subordinates for the current cycle."""
-        is_admin = (
-            self.env.user.has_group('zkteco_attendance.group_zkteco_admin')
-            or self.env.user.has_group('attendance_ot_portal_approval.group_attendance_ot_manager')
-            or self.env.is_superuser()
-        )
-        if is_admin:
+        is_hr_admin = self._is_attendance_hr_admin()
+        if is_hr_admin:
             subordinates = self.env['hr.employee'].search([('active', '=', True)])
         else:
-            user_emp_ids = self.env.user.employee_ids.ids
-            subordinates = self.env['hr.employee'].search([
-                ('active', '=', True),
-                ('id', 'not in', user_emp_ids),
-                '|', '|',
-                ('id', 'child_of', user_emp_ids),
-                ('parent_id.user_id', '=', self.env.user.id),
-                ('leave_manager_id', '=', self.env.user.id),
-            ])
+            user_emp = self.env.user.employee_id or (self.env.user.employee_ids[0] if self.env.user.employee_ids else False)
+            if not user_emp:
+                raise UserError(_("No employee record is linked to your user account."))
+            subordinates = user_emp._get_all_subordinates()
+            # Unassigned employees must never be included for regular managers
+            subordinates = subordinates.filtered(lambda e: bool(e.parent_id))
 
         if not subordinates:
             raise UserError(_("No subordinates found reporting to your account."))
@@ -565,6 +601,7 @@ class AttendanceOtApprovalSheet(models.Model):
     def action_excuse_all_late(self):
         """Excuse all late arrival lines on the sheet."""
         for sheet in self:
+            sheet._check_approval_permission()
             late_lines = sheet.line_ids.filtered(lambda l: l.raw_late_minutes > 0)
             for l in late_lines:
                 l.is_late_excused = True
@@ -579,6 +616,7 @@ class AttendanceOtApprovalSheet(models.Model):
     def action_deduct_all_late(self):
         """Reset all late arrivals to be deducted from payroll."""
         for sheet in self:
+            sheet._check_approval_permission()
             late_lines = sheet.line_ids.filtered(lambda l: l.raw_late_minutes > 0)
             for l in late_lines:
                 l.is_late_excused = False
@@ -592,6 +630,7 @@ class AttendanceOtApprovalSheet(models.Model):
     def action_accept_all_ot(self):
         """Accept all recorded overtime lines on the sheet."""
         for sheet in self:
+            sheet._check_approval_permission()
             ot_lines = sheet.line_ids.filtered(lambda l: l.raw_ot_hours > 0)
             for l in ot_lines:
                 l.is_ot_acceptable = True
@@ -600,6 +639,7 @@ class AttendanceOtApprovalSheet(models.Model):
 
     def action_reject(self):
         for sheet in self:
+            sheet._check_approval_permission()
             sheet.state = 'rejected'
             sheet._safe_message_post(_("Attendance OT & Absent sheet REJECTED by %s. Reason: %s") % (
                 self.env.user.name, sheet.rejection_reason or _('No reason provided')
@@ -607,11 +647,13 @@ class AttendanceOtApprovalSheet(models.Model):
 
     def action_reset_draft(self):
         for sheet in self:
+            sheet._check_approval_permission()
             sheet.state = 'draft'
 
     def action_reopen(self):
         """Reopen an approved or rejected sheet for manager adjustments."""
         for sheet in self:
+            sheet._check_approval_permission()
             sheet.state = 'submitted'
             sheet._safe_message_post(_("Attendance OT & Absent sheet REOPENED for adjustments by %s.") % self.env.user.name)
 
