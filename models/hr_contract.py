@@ -197,7 +197,7 @@ class HrContract(models.Model):
         'ot_night_hours', 'ot_night_rate',
         'ot_weekend_hours', 'ot_weekend_rate',
         'ot_holiday_hours', 'ot_holiday_rate',
-        'approved_absent_hours', 'absent_hourly_rate'
+        'approved_absent_hours', 'absent_hourly_rate', 'base_hourly_rate'
     )
     def _compute_ot_and_absent_amounts(self):
         for contract in self:
@@ -212,7 +212,8 @@ class HrContract(models.Model):
             contract.total_ot_holiday_amount = holiday_amt
             contract.total_ot_amount = day_amt + night_amt + weekend_amt + holiday_amt
 
-            contract.absent_deduction_amount = (contract.approved_absent_hours or 0.0) * (contract.absent_hourly_rate or 0.0)
+            abs_rate = contract.absent_hourly_rate or contract.base_hourly_rate or 0.0
+            contract.absent_deduction_amount = (contract.approved_absent_hours or 0.0) * abs_rate
 
     @api.depends('attendance_ot_sheet_ids')
     def _compute_approved_sheet_count(self):
