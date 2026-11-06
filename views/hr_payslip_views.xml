@@ -24,11 +24,12 @@
 
                     <!-- Calculated Totals for Payslip -->
                     <group string="Calculated Period Totals">
+                        <field name="can_edit_absent_deduction" invisible="1"/>
                         <group>
                             <field name="total_ot_amount" string="Total Overtime Payment" decoration-bf="1" decoration-success="total_ot_amount &gt; 0"/>
                         </group>
                         <group>
-                            <field name="absent_deduction_amount" string="Total Absent Deduction" decoration-bf="1" decoration-danger="absent_deduction_amount &gt; 0"/>
+                            <field name="absent_deduction_amount" string="Total Absent Deduction" readonly="not can_edit_absent_deduction" decoration-bf="1" decoration-danger="absent_deduction_amount &gt; 0"/>
                         </group>
                     </group>
 

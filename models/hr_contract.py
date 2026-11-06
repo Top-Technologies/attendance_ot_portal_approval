@@ -153,10 +153,17 @@ class HrContract(models.Model):
     )
     absent_deduction_amount = fields.Float(
         string='Total Absent Deduction (Birr)',
-        compute='_compute_ot_and_absent_amounts',
+        compute='_compute_absent_deduction_amount',
+        inverse='_inverse_absent_deduction_amount',
         store=True,
+        readonly=False,
         digits=(16, 2),
-        help='Calculated as Approved Absent Hours * Absent Hourly Rate.',
+        help='Calculated as Approved Absent Hours * Absent Hourly Rate. Editable by Employee Administrators.',
+    )
+    can_edit_absent_deduction = fields.Boolean(
+        string='Can Edit Absent Deduction',
+        compute='_compute_can_edit_absent_deduction',
+        help='Technical field to allow editing of absent deduction only for Employee Administrators.',
     )
 
     attendance_ot_sheet_ids = fields.One2many(
@@ -197,7 +204,6 @@ class HrContract(models.Model):
         'ot_night_hours', 'ot_night_rate',
         'ot_weekend_hours', 'ot_weekend_rate',
         'ot_holiday_hours', 'ot_holiday_rate',
-        'approved_absent_hours', 'absent_hourly_rate', 'base_hourly_rate'
     )
     def _compute_ot_and_absent_amounts(self):
         for contract in self:
@@ -212,8 +218,28 @@ class HrContract(models.Model):
             contract.total_ot_holiday_amount = holiday_amt
             contract.total_ot_amount = day_amt + night_amt + weekend_amt + holiday_amt
 
-            abs_rate = contract.absent_hourly_rate or contract.base_hourly_rate or 0.0
-            contract.absent_deduction_amount = (contract.approved_absent_hours or 0.0) * abs_rate
+    @api.depends('approved_absent_hours', 'absent_hourly_rate', 'base_hourly_rate')
+    def _compute_absent_deduction_amount(self):
+        for contract in self:
+            if contract.approved_absent_hours:
+                abs_rate = contract.absent_hourly_rate or contract.base_hourly_rate or 0.0
+                contract.absent_deduction_amount = (contract.approved_absent_hours or 0.0) * abs_rate
+            elif not contract.absent_deduction_amount:
+                contract.absent_deduction_amount = 0.0
+
+    def _inverse_absent_deduction_amount(self):
+        # Allow employee administrators to manually override absent deduction amount
+        pass
+
+    def _compute_can_edit_absent_deduction(self):
+        is_admin = (
+            self.env.user.has_group('hr.group_hr_manager') or
+            self.env.user.has_group('hr_contract.group_hr_contract_manager') or
+            self.env.user.has_group('base.group_system') or
+            self.env.is_superuser()
+        )
+        for contract in self:
+            contract.can_edit_absent_deduction = is_admin
 
     @api.depends('attendance_ot_sheet_ids')
     def _compute_approved_sheet_count(self):
@@ -240,6 +266,7 @@ class HrContract(models.Model):
             'ot_holiday_hours': 0.0,
             'approved_absent_hours': 0.0,
             'approved_absent_days': 0,
+            'absent_deduction_amount': 0.0,
         })
 
     def init(self):
@@ -261,6 +288,12 @@ class HrContract(models.Model):
                     self.env.user.has_group('hr.group_hr_manager') or 
                     self.env.is_superuser()):
                 raise AccessError(_("You do not have permission to modify the Monthly Working Hours on employee contracts."))
+        if 'absent_deduction_amount' in vals and not self.env.su:
+            if not (self.env.user.has_group('base.group_system') or 
+                    self.env.user.has_group('hr.group_hr_manager') or 
+                    self.env.user.has_group('hr_contract.group_hr_contract_manager') or 
+                    self.env.is_superuser()):
+                raise AccessError(_("Only users with Employee Administrator access can modify Total Absent Deduction."))
         return super().write(vals)
 
 

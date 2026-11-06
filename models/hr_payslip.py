@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
+from odoo.exceptions import AccessError
 
 
 class HrPayslip(models.Model):
@@ -73,10 +74,16 @@ class HrPayslip(models.Model):
     absent_deduction_amount = fields.Float(
         string='Total Absent Deduction (Birr)',
         compute='_compute_attendance_ot_and_absent',
+        inverse='_inverse_absent_deduction_amount',
         store=True,
         readonly=False,
         digits=(16, 2),
         help='Total calculated absent deduction for this payslip period. Available in Python salary rules as payslip.absent_deduction_amount',
+    )
+    can_edit_absent_deduction = fields.Boolean(
+        string='Can Edit Absent Deduction',
+        compute='_compute_can_edit_absent_deduction',
+        help='Technical field to allow editing of absent deduction only for Employee Administrators.',
     )
 
     attendance_ot_sheet_ids = fields.Many2many(
@@ -167,10 +174,32 @@ class HrPayslip(models.Model):
             absent_rate = contract.absent_hourly_rate or base_rate
 
             ot_amt = (day_h * day_rate) + (night_h * night_rate) + (weekend_h * weekend_rate) + (holiday_h * holiday_rate)
-            ded_amt = absent_h * absent_rate
+            if absent_h:
+                ded_amt = absent_h * absent_rate
+            elif contract and contract.absent_deduction_amount:
+                ded_amt = contract.absent_deduction_amount
+            elif not slip.absent_deduction_amount:
+                ded_amt = 0.0
+            else:
+                ded_amt = slip.absent_deduction_amount
 
             slip.total_ot_amount = ot_amt
             slip.absent_deduction_amount = ded_amt
+
+    def _inverse_absent_deduction_amount(self):
+        # Allow employee administrators to manually override absent deduction amount on payslip
+        pass
+
+    def _compute_can_edit_absent_deduction(self):
+        is_admin = (
+            self.env.user.has_group('hr.group_hr_manager') or
+            self.env.user.has_group('hr_contract.group_hr_contract_manager') or
+            self.env.user.has_group('hr_payroll.group_hr_payroll_manager') or
+            self.env.user.has_group('base.group_system') or
+            self.env.is_superuser()
+        )
+        for slip in self:
+            slip.can_edit_absent_deduction = is_admin and slip.state in ('draft', 'verify')
 
     def action_payslip_done(self):
         res = super().action_payslip_done()
@@ -183,6 +212,13 @@ class HrPayslip(models.Model):
         return res
 
     def write(self, vals):
+        if 'absent_deduction_amount' in vals and not self.env.su:
+            if not (self.env.user.has_group('base.group_system') or 
+                    self.env.user.has_group('hr.group_hr_manager') or 
+                    self.env.user.has_group('hr_contract.group_hr_contract_manager') or 
+                    self.env.user.has_group('hr_payroll.group_hr_payroll_manager') or 
+                    self.env.is_superuser()):
+                raise AccessError(_("Only users with Employee Administrator access can modify Total Absent Deduction."))
         res = super().write(vals)
         if vals.get('state') in ('done', 'paid'):
             self._reset_contract_ot_and_absent()
