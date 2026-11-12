@@ -11,6 +11,7 @@
                 </header>
                 <field name="name" decoration-bf="1"/>
                 <field name="employee_id"/>
+                <field name="farm_employee_type" string="Classification" widget="badge" optional="show"/>
                 <field name="department_id" optional="show"/>
                 <field name="date_from"/>
                 <field name="date_to"/>
@@ -41,12 +42,13 @@
                     <button name="action_reject" string="Reject Report" type="object" class="btn-danger" invisible="state != 'submitted' or not can_approve"/>
                     <button name="action_excuse_all_late" string="Excuse All Late Arrivals" type="object" class="btn-outline-info" invisible="state not in ('draft', 'submitted') or not can_approve"/>
                     <button name="action_accept_all_ot" string="Accept All OT" type="object" class="btn-outline-primary" invisible="state not in ('draft', 'submitted') or not can_approve"/>
-                    <button name="action_reopen" string="Reopen for Adjustment" type="object" class="btn-warning" invisible="state not in ('approved', 'rejected') or not can_approve"/>
-                    <button name="action_reset_draft" string="Reset to Draft" type="object" invisible="state == 'draft' or not can_approve"/>
+                    <button name="action_reopen" string="Reopen for Adjustment" type="object" class="btn-warning" invisible="state not in ('approved', 'rejected') or not can_reset"/>
+                    <button name="action_reset_draft" string="Reset to Draft" type="object" class="btn-outline-danger" invisible="state == 'draft' or not can_reset" confirm="This will reset the sheet to Draft and roll back any approved OT and absent deductions on the employee contract. Continue?"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,submitted,approved,rejected"/>
                 </header>
                 <sheet>
                     <field name="can_approve" invisible="1"/>
+                    <field name="can_reset" invisible="1"/>
                     <div class="oe_title">
                         <label for="name" string="Report Reference"/>
                         <h1>
@@ -209,14 +211,36 @@
                 <filter string="My Subordinates" name="my_subordinates" domain="['|', ('manager_id.user_id', '=', uid), ('employee_id.parent_id.user_id', '=', uid)]"/>
                 <filter string="Unassigned Employees" name="unassigned_employees" domain="[('employee_id.parent_id', '=', False)]" groups="attendance_ot_portal_approval.group_attendance_ot_manager,zkteco_attendance.group_zkteco_admin"/>
                 <filter string="My Sheets" name="my_sheets" domain="[('employee_id.user_id', '=', uid)]"/>
+                <separator/>
+                <filter name="filter_ho" string="Head Office" domain="[('farm_employee_type', '=', 'head_office')]"/>
+                <filter name="filter_jimma_ho" string="Jimma Head Office" domain="[('farm_employee_type', '=', 'jimma_head_office')]"/>
+                <filter name="filter_farm" string="Farm" domain="[('farm_employee_type', '=', 'permanent')]"/>
+                <filter name="filter_temporary" string="Temporary" domain="[('farm_employee_type', '=', 'temporary')]"/>
+                <filter name="filter_zemach" string="Zemach" domain="[('farm_employee_type', '=', 'zemach')]"/>
+                <filter name="filter_cpw" string="CPW" domain="[('farm_employee_type', '=', 'cpw')]"/>
                 <group expand="0" string="Group By">
                     <filter string="Employee" name="group_employee" context="{'group_by': 'employee_id'}"/>
+                    <filter string="Classification" name="group_classification" context="{'group_by': 'farm_employee_type'}"/>
                     <filter string="Department" name="group_department" context="{'group_by': 'department_id'}"/>
                     <filter string="Manager" name="group_manager" context="{'group_by': 'manager_id'}"/>
                     <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
                     <filter string="Period Type" name="group_period_type" context="{'group_by': 'period_type'}"/>
                 </group>
             </search>
+        </field>
+    </record>
+
+    <!-- Server Action: Batch Reset to Draft for Admins -->
+    <record id="action_server_batch_reset_draft" model="ir.actions.server">
+        <field name="name">Reset to Draft (Rollback Contract)</field>
+        <field name="model_id" ref="model_attendance_ot_approval_sheet"/>
+        <field name="binding_model_id" ref="model_attendance_ot_approval_sheet"/>
+        <field name="binding_view_types">list</field>
+        <field name="groups_id" eval="[(4, ref('attendance_ot_portal_approval.group_attendance_ot_manager')), (4, ref('hr.group_hr_manager')), (4, ref('zkteco_attendance.group_zkteco_admin'))]"/>
+        <field name="state">code</field>
+        <field name="code">
+            if records:
+                action = records.action_batch_reset_draft()
         </field>
     </record>
 

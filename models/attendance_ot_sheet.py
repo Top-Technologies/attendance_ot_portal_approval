@@ -45,6 +45,19 @@ class AttendanceOtApprovalSheet(models.Model):
         readonly=False,
         help='Manager responsible for reviewing and approving this attendance report.',
     )
+    farm_employee_type = fields.Selection([
+        ('head_office', 'Head Office (ዋና መ/ቤት)'),
+        ('jimma_head_office', 'Jimma Head Office (የጅማ ዋና መ/ቤት)'),
+        ('permanent', 'Farm (የእርሻ)'),
+        ('temporary', 'Temporary (ጊዜያዊ)'),
+        ('zemach', 'Zemach / Seasonal (ዘመች)'),
+        ('cpw', 'CPW'),
+    ], string='Employee Classification', compute='_compute_farm_employee_type', store=True, index=True)
+
+    @api.depends('employee_id')
+    def _compute_farm_employee_type(self):
+        for rec in self:
+            rec.farm_employee_type = getattr(rec.employee_id, 'farm_employee_type', False) or 'head_office'
     company_id = fields.Many2one(
         'res.company',
         string='Company',
@@ -153,6 +166,10 @@ class AttendanceOtApprovalSheet(models.Model):
     can_approve = fields.Boolean(
         string='Can Approve',
         compute='_compute_can_approve',
+    )
+    can_reset = fields.Boolean(
+        string='Can Reset to Draft',
+        compute='_compute_can_reset',
     )
 
     # Computed Approved Totals per OT Factor Category
@@ -292,6 +309,31 @@ class AttendanceOtApprovalSheet(models.Model):
                 sheet.can_approve = user_emp.is_in_subordinate_hierarchy(sheet.employee_id)
             else:
                 sheet.can_approve = False
+
+    @api.depends_context('uid')
+    @api.depends('employee_id', 'state')
+    def _compute_can_reset(self):
+        is_hr_admin = self._is_attendance_hr_admin()
+        current_user = self.env.user
+        user_emp = current_user.employee_id or (current_user.employee_ids[0] if current_user.employee_ids else False)
+
+        for sheet in self:
+            if sheet.state == 'draft':
+                sheet.can_reset = False
+                continue
+            # HR / System Admin can always reset any non-draft sheet (including approved/rejected)
+            if is_hr_admin:
+                sheet.can_reset = True
+                continue
+            # Strict Rule: Disallow self-action for regular managers
+            if (sheet.employee_id.user_id and sheet.employee_id.user_id == current_user) or (user_emp and sheet.employee_id.id == user_emp.id):
+                sheet.can_reset = False
+                continue
+            # Manager in reporting hierarchy can reopen/reset submitted/rejected sheets
+            if user_emp and user_emp.is_in_subordinate_hierarchy(sheet.employee_id):
+                sheet.can_reset = True
+            else:
+                sheet.can_reset = False
 
     @api.depends(
         'line_ids',
@@ -646,9 +688,88 @@ class AttendanceOtApprovalSheet(models.Model):
             ))
 
     def action_reset_draft(self):
+        """Reset sheet to Draft state and roll back approved OT and deduction hours on contract."""
         for sheet in self:
-            sheet._check_approval_permission()
+            is_admin = sheet._is_attendance_hr_admin()
+            if not is_admin:
+                sheet._check_approval_permission()
+            was_approved = (sheet.state == 'approved')
             sheet.state = 'draft'
+            sheet.approved_by_id = False
+            sheet.approval_date = False
+
+            if was_approved:
+                sheet._rollback_contract_sync()
+                sheet._safe_message_post(
+                    _("Attendance OT & Absent sheet reset to Draft by %s. Approved OT and deduction hours have been reset on contract.")
+                    % self.env.user.name
+                )
+            else:
+                sheet._safe_message_post(
+                    _("Attendance OT & Absent sheet reset to Draft by %s.") % self.env.user.name
+                )
+
+    def _rollback_contract_sync(self):
+        """
+        Roll back or recalculate the active contract's OT and absent deduction hours
+        when an approved sheet is reset to draft.
+        """
+        for sheet in self:
+            contract = sheet.contract_id
+            if not contract:
+                contract = self.env['hr.contract'].sudo().search([
+                    ('employee_id', '=', sheet.employee_id.id),
+                    ('state', 'in', ('open', 'draft')),
+                ], order='date_start desc', limit=1)
+
+            if contract:
+                # Find other still-approved sheets for this contract
+                other_approved = self.env['attendance.ot.approval.sheet'].sudo().search([
+                    ('id', '!=', sheet.id),
+                    ('contract_id', '=', contract.id),
+                    ('state', '=', 'approved'),
+                ])
+                if not other_approved:
+                    other_approved = self.env['attendance.ot.approval.sheet'].sudo().search([
+                        ('id', '!=', sheet.id),
+                        ('employee_id', '=', sheet.employee_id.id),
+                        ('state', '=', 'approved'),
+                    ])
+
+                if other_approved:
+                    contract.sudo().write({
+                        'ot_day_hours': sum(other_approved.mapped('total_ot_day_hours')),
+                        'ot_night_hours': sum(other_approved.mapped('total_ot_night_hours')),
+                        'ot_weekend_hours': sum(other_approved.mapped('total_ot_weekend_hours')),
+                        'ot_holiday_hours': sum(other_approved.mapped('total_ot_holiday_hours')),
+                        'approved_absent_hours': sum(other_approved.mapped('total_approved_late_hours')),
+                        'approved_absent_days': sum(other_approved.mapped('total_approved_absent_days')),
+                    })
+                else:
+                    # No other approved sheets: completely reset OT and absent deduction
+                    contract.sudo().write({
+                        'ot_day_hours': 0.0,
+                        'ot_night_hours': 0.0,
+                        'ot_weekend_hours': 0.0,
+                        'ot_holiday_hours': 0.0,
+                        'approved_absent_hours': 0.0,
+                        'approved_absent_days': 0,
+                    })
+
+    def action_batch_reset_draft(self):
+        """Batch reset multiple sheets to draft for administrators."""
+        for sheet in self:
+            sheet.action_reset_draft()
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Reset to Draft Complete'),
+                'message': _('Selected attendance sheets have been reset to draft and contract OT/deductions rolled back.'),
+                'type': 'success',
+                'sticky': False,
+            }
+        }
 
     def action_reopen(self):
         """Reopen an approved or rejected sheet for manager adjustments."""
