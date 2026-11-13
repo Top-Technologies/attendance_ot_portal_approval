@@ -28,7 +28,7 @@
                         table.report-grid td.text-left { text-align: left; }
                         table.report-grid td.text-right { text-align: right; }
                         .report-title {
-                            font-size: 20px;
+                            font-size: 19px;
                             font-weight: bold;
                             text-align: center;
                             margin-bottom: 14px;
@@ -60,9 +60,9 @@
                     </style>
 
                     <!-- 1. OVERTIME REPORT SECTION -->
-                    <t t-if="report_type in ('overtime', 'all') and ot_data">
+                    <t t-if="(report_type == 'overtime' and ot_data) or (report_type == 'all' and ot_data)">
                         <div class="report-title">
-                            <span t-esc="report_title if report_type == 'overtime' else 'Overtime done for the Month of መስከረም 2019'"/>
+                            <span t-esc="report_title"/>
                         </div>
 
                         <table class="report-grid">
@@ -151,7 +151,7 @@
                     <!-- 2. ALLOWANCE REPORT SECTION -->
                     <t t-if="report_type in ('allowance', 'all') and alw_data">
                         <div class="report-title">
-                            <span t-esc="report_title if report_type == 'allowance' else 'Payroll Allowance for the Month of መስከረም 2019'"/>
+                            <span t-esc="report_title"/>
                         </div>
 
                         <table class="report-grid">
@@ -164,7 +164,7 @@
                                 </tr>
                                 <tr>
                                     <t t-foreach="alw_data['columns']" t-as="col">
-                                        <th style="width: 12%;"><span t-esc="col['title']"/></th>
+                                        <th style="min-width: 80px;"><span t-esc="col['title']"/></th>
                                     </t>
                                 </tr>
                             </thead>
@@ -221,9 +221,9 @@
                     </t>
 
                     <!-- 3. ABSENT LIST REPORT SECTION -->
-                    <t t-if="report_type in ('absent', 'all') and abs_data">
+                    <t t-if="(report_type in ('absent', 'all') and abs_data) or (report_type == 'overtime' and attendance_report_type in ('absent', 'both') and abs_data)">
                         <div class="report-title">
-                            <span t-esc="report_title if report_type == 'absent' else 'Absent list for the Month of መስከረም 2019'"/>
+                            <span t-esc="report_title if report_type == 'absent' else 'Absent list for the Month'"/>
                         </div>
 
                         <table class="report-grid">
@@ -285,32 +285,78 @@
                     <!-- 4. DEDUCTION REPORT SECTION -->
                     <t t-if="report_type in ('deduction', 'all') and ded_data">
                         <div class="report-title">
-                            <span t-esc="report_title if report_type == 'deduction' else 'Payroll Deduction for the Month of መስከረም 2026'"/>
+                            <span t-esc="report_title"/>
                         </div>
 
-                        <table class="report-grid" style="max-width: 700px; margin-left: auto; margin-right: auto;">
-                            <thead>
-                                <tr>
-                                    <th style="width: 10%; background-color: #C8D6AF;">No</th>
-                                    <th style="width: 55%; background-color: #C8D6AF;">Employee</th>
-                                    <th style="width: 35%; background-color: #C8D6AF;"><span t-esc="ded_data['rule_label']"/></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <t t-foreach="ded_data['rows']" t-as="row">
+                        <!-- Single Deduction layout -->
+                        <t t-if="ded_data['is_single']">
+                            <table class="report-grid" style="max-width: 700px; margin-left: auto; margin-right: auto;">
+                                <thead>
                                     <tr>
-                                        <td class="text-center"><span t-esc="row['no']"/></td>
-                                        <td class="text-left"><span t-esc="row['name']"/></td>
-                                        <td class="text-right font-weight-bold"><span t-esc="'{:,.2f}'.format(row['amount'])"/></td>
+                                        <th style="width: 10%; background-color: #C8D6AF;">No</th>
+                                        <th style="width: 55%; background-color: #C8D6AF;">Employee</th>
+                                        <th style="width: 35%; background-color: #C8D6AF;"><span t-esc="ded_data['rule_label']"/></th>
                                     </tr>
-                                </t>
-                                <!-- Total Row -->
-                                <tr style="font-weight: bold; background-color: #f7f7f7;">
-                                    <td colspan="2" class="text-right">Total</td>
-                                    <td class="text-right"><span t-esc="'{:,.2f}'.format(ded_data['tot_amt'])"/></td>
-                                </tr>
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    <t t-foreach="ded_data['rows']" t-as="row">
+                                        <tr>
+                                            <td class="text-center"><span t-esc="row['no']"/></td>
+                                            <td class="text-left"><span t-esc="row['name']"/></td>
+                                            <td class="text-right font-weight-bold"><span t-esc="'{:,.2f}'.format(row['amount'])"/></td>
+                                        </tr>
+                                    </t>
+                                    <!-- Total Row -->
+                                    <tr style="font-weight: bold; background-color: #f7f7f7;">
+                                        <td colspan="2" class="text-right">Total</td>
+                                        <td class="text-right"><span t-esc="'{:,.2f}'.format(ded_data['tot_amt'])"/></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </t>
+
+                        <!-- Multi-Deduction layout -->
+                        <t t-if="not ded_data['is_single']">
+                            <table class="report-grid">
+                                <thead>
+                                    <tr>
+                                        <th rowspan="2" style="width: 4%; background-color: #C8D6AF;">No</th>
+                                        <th rowspan="2" style="width: 24%; background-color: #C8D6AF;">Employee</th>
+                                        <th t-att-colspan="len(ded_data['columns'])" style="background-color: #C8D6AF;">Deductions</th>
+                                        <th rowspan="2" style="width: 12%; background-color: #C8D6AF;">Total</th>
+                                    </tr>
+                                    <tr>
+                                        <t t-foreach="ded_data['columns']" t-as="col">
+                                            <th style="min-width: 80px; background-color: #C8D6AF;"><span t-esc="col['title']"/></th>
+                                        </t>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-foreach="ded_data['rows']" t-as="row">
+                                        <tr>
+                                            <td class="text-center"><span t-esc="row['no']"/></td>
+                                            <td class="text-left"><span t-esc="row['name']"/></td>
+                                            <t t-foreach="ded_data['columns']" t-as="col">
+                                                <td class="text-right">
+                                                    <t t-if="row['values'][col['key']] &gt; 0">
+                                                        <span t-esc="'{:,.2f}'.format(row['values'][col['key']])"/>
+                                                    </t>
+                                                </td>
+                                            </t>
+                                            <td class="text-right font-weight-bold"><span t-esc="'{:,.2f}'.format(row['total'])"/></td>
+                                        </tr>
+                                    </t>
+                                    <!-- Total Row -->
+                                    <tr style="font-weight: bold; background-color: #f7f7f7;">
+                                        <td colspan="2" class="text-right">Total</td>
+                                        <t t-foreach="ded_data['columns']" t-as="col">
+                                            <td class="text-right"><span t-esc="'{:,.2f}'.format(ded_data['col_totals'][col['key']])"/></td>
+                                        </t>
+                                        <td class="text-right"><span t-esc="'{:,.2f}'.format(ded_data['grand_total'])"/></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </t>
 
                         <!-- Signatures Footer -->
                         <div class="signatures-block">

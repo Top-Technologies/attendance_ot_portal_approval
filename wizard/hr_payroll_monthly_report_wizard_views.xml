@@ -12,10 +12,37 @@
                     </div>
 
                     <group>
-                        <group string="Report Configuration">
+                        <group string="Report Category &amp; Specific Selection">
                             <field name="report_type" widget="radio"/>
-                            <field name="deduction_rule_id" invisible="report_type not in ('deduction', 'all')" options="{'no_create': True}"/>
+                            
+                            <!-- Specific Allowance Picker -->
+                            <field name="allowance_rule_ids"
+                                   widget="many2many_tags"
+                                   invisible="report_type != 'allowance'"
+                                   options="{'no_create': True}"
+                                   placeholder="Pick specific allowances (Leave empty for All/Standard Allowances)"/>
+
+                            <!-- Specific Deduction Picker -->
+                            <field name="deduction_rule_ids"
+                                   widget="many2many_tags"
+                                   invisible="report_type != 'deduction'"
+                                   options="{'no_create': True}"
+                                   placeholder="Pick specific deductions e.g. Oil Deduction, Floor Deduction (Leave empty for Oil Deduction)"/>
+
+                            <!-- Attendance Sub-Options -->
+                            <field name="attendance_report_type"
+                                   widget="radio"
+                                   invisible="report_type != 'overtime'"/>
+                            
+                            <div class="o_row" colspan="2" invisible="report_type != 'overtime' or attendance_report_type == 'absent'">
+                                <span class="fw-bold me-2">Include OT Rates:</span>
+                                <field name="include_normal_ot" class="oe_inline me-2"/><label for="include_normal_ot" class="me-3"/>
+                                <field name="include_night_ot" class="oe_inline me-2"/><label for="include_night_ot" class="me-3"/>
+                                <field name="include_weekend_ot" class="oe_inline me-2"/><label for="include_weekend_ot" class="me-3"/>
+                                <field name="include_holiday_ot" class="oe_inline me-2"/><label for="include_holiday_ot"/>
+                            </div>
                         </group>
+
                         <group string="Target Period &amp; Ethiopian Calendar">
                             <field name="filter_by" widget="radio"/>
                             <field name="payslip_run_id" invisible="filter_by != 'batch'" required="filter_by == 'batch'" options="{'no_create': True}"/>
@@ -38,9 +65,10 @@
                                     <field name="department_id" options="{'no_create': True}"/>
                                 </group>
                                 <group string="Display Thresholds">
-                                    <field name="only_with_overtime" invisible="report_type not in ('overtime', 'all')"/>
-                                    <field name="only_with_allowance" invisible="report_type not in ('allowance', 'all')"/>
-                                    <field name="only_with_absent" invisible="report_type not in ('absent', 'all')"/>
+                                    <field name="only_with_overtime" invisible="report_type != 'overtime'"/>
+                                    <field name="only_with_allowance" invisible="report_type != 'allowance'"/>
+                                    <field name="only_with_deduction" invisible="report_type != 'deduction'"/>
+                                    <field name="only_with_absent" invisible="report_type != 'absent' and attendance_report_type != 'absent'"/>
                                 </group>
                             </group>
                         </page>

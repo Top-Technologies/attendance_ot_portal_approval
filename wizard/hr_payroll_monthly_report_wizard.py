@@ -22,7 +22,7 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
         ('absent', 'Monthly Absent List Report (የቀሪ ሰራተኞች ዝርዝር ሪፖርት)'),
         ('deduction', 'Monthly Deduction Report (የተቀናሽ ሪፖርት)'),
         ('all', 'All Reports in One Workbook (ሁሉንም በአንድ ላይ)'),
-    ], string='Report Type', default='overtime', required=True)
+    ], string='Report Category', default='overtime', required=True)
 
     filter_by = fields.Selection([
         ('batch', 'By Payslip Batch (በደመወዝ ባች)'),
@@ -51,6 +51,41 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
         required=True,
     )
 
+    # ---------------------------------------------------------
+    # Specific Item Pickers (Allowance, Deduction, Attendance)
+    # ---------------------------------------------------------
+    # Allowance Picker
+    allowance_rule_ids = fields.Many2many(
+        'hr.salary.rule',
+        'rel_monthly_wizard_alw_rules',
+        'wizard_id', 'rule_id',
+        string='Select Allowance(s) to Print',
+        domain="[('category_id.code', '=', 'ALW')]",
+        help='Pick specific allowances to include as columns (e.g. Acting, Cash Indemnity, Service, Transport). Leave empty to include standard allowances.',
+    )
+
+    # Deduction Picker
+    deduction_rule_ids = fields.Many2many(
+        'hr.salary.rule',
+        'rel_monthly_wizard_ded_rules',
+        'wizard_id', 'rule_id',
+        string='Select Deduction(s) to Print',
+        domain="[('category_id.code', '=', 'DED')]",
+        help='Pick specific deductions to include (e.g. Oil Deduction, Floor Deduction, Labor Union, Staff Debtors). If 1 is picked, generates a dedicated single-deduction schedule.',
+    )
+
+    # Attendance Options
+    attendance_report_type = fields.Selection([
+        ('overtime', 'Overtime Breakdown (Normal, Night, Weekend, Holiday)'),
+        ('absent', 'Absent Days & Deductions List'),
+        ('both', 'Both Overtime and Absent Lists'),
+    ], string='Attendance Content', default='overtime')
+
+    include_normal_ot = fields.Boolean(string='Normal Hour (1.5x)', default=True)
+    include_night_ot = fields.Boolean(string='Night Hour (1.75x)', default=True)
+    include_weekend_ot = fields.Boolean(string='Weekend Hour (2.0x)', default=True)
+    include_holiday_ot = fields.Boolean(string='Holiday Hour (2.5x)', default=True)
+
     # Ethiopian Date & Title Settings
     ethiopian_month = fields.Selection(
         eth_utils.ETHIOPIAN_MONTH_SELECTION,
@@ -65,10 +100,10 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
     )
     report_title = fields.Char(
         string='Report Title Header',
-        help='Header printed at the top of the report. Automatically updated when month/year changes.',
+        help='Header printed at the top of the report. Automatically updated when month/year/selection changes.',
     )
 
-    # Filtering Options
+    # Organizational & Display Filters
     employee_classification = fields.Selection([
         ('all', 'All Accessible Classifications'),
         ('head_office', 'Head Office (ዋና መ/ቤት)'),
@@ -96,17 +131,14 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
         help='If checked, only employees with unexcused absent days will be listed.',
     )
     only_with_allowance = fields.Boolean(
-        string='Only Employees with Allowances',
+        string='Only Employees with Selected Allowance(s)',
         default=True,
-        help='If checked, only employees receiving allowances will be listed.',
+        help='If checked, only employees receiving the selected allowance(s) will be listed.',
     )
-
-    # Specific Deduction Rule (when report_type is 'deduction')
-    deduction_rule_id = fields.Many2one(
-        'hr.salary.rule',
-        string='Deduction Item',
-        domain="[('category_id.code', '=', 'DED')]",
-        help='Select specific deduction rule (e.g. Oil Deduction, Flour Deduction, Labor Union). Leave empty for Oil Deduction.',
+    only_with_deduction = fields.Boolean(
+        string='Only Employees with Selected Deduction(s)',
+        default=True,
+        help='If checked, only employees having deductions will be listed.',
     )
 
     # Signatures
@@ -151,17 +183,17 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
             res['ethiopian_year'] = eth_conv[0]
             res['ethiopian_month'] = str(eth_conv[1])
 
-        # Pre-select Oil Deduction rule if exists
+        # Pre-select Oil Deduction rule if available
         oil_rule = self.env['hr.salary.rule'].search([('code', '=', 'DED_OIL')], limit=1)
-        if oil_rule:
-            res['deduction_rule_id'] = oil_rule.id
+        if oil_rule and res.get('report_type') == 'deduction':
+            res['deduction_rule_ids'] = [(6, 0, [oil_rule.id])]
 
         # Compute initial title
         m_idx = int(res.get('ethiopian_month', '1'))
         m_name = eth_utils.ETHIOPIAN_MONTHS_AMHARIC[m_idx] if 1 <= m_idx <= 13 else 'መስከረም'
         yr = res.get('ethiopian_year', 2019)
         rtype = res.get('report_type', 'overtime')
-        res['report_title'] = self._build_title(rtype, m_name, yr)
+        res['report_title'] = self._build_title(rtype, m_name, yr, oil_rule if rtype == 'deduction' else None)
 
         return res
 
@@ -181,7 +213,7 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
                 self.ethiopian_month = str(eth_conv[1])
         self._update_report_title()
 
-    @api.onchange('report_type', 'ethiopian_month', 'ethiopian_year', 'deduction_rule_id')
+    @api.onchange('report_type', 'ethiopian_month', 'ethiopian_year', 'deduction_rule_ids', 'allowance_rule_ids', 'attendance_report_type')
     def _onchange_report_settings(self):
         self._update_report_title()
 
@@ -189,18 +221,26 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
         m_idx = int(self.ethiopian_month or '1')
         m_name = eth_utils.ETHIOPIAN_MONTHS_AMHARIC[m_idx] if 1 <= m_idx <= 13 else 'መስከረም'
         yr = self.ethiopian_year or 2019
-        self.report_title = self._build_title(self.report_type, m_name, yr, self.deduction_rule_id)
+        self.report_title = self._build_title(self.report_type, m_name, yr, self.deduction_rule_ids, self.allowance_rule_ids)
 
-    def _build_title(self, rtype, m_name, yr, deduction_rule=None):
+    def _build_title(self, rtype, m_name, yr, deduction_rules=None, allowance_rules=None):
         if rtype == 'overtime':
             return f"Overtime done for the Month of {m_name} {yr}"
         elif rtype == 'allowance':
+            if allowance_rules and len(allowance_rules) <= 3:
+                names = ", ".join([r.name.split('(')[0].strip() for r in allowance_rules])
+                return f"Payroll Allowance ({names}) for the Month of {m_name} {yr}"
             return f"Payroll Allowance for the Month of {m_name} {yr}"
         elif rtype == 'absent':
             return f"Absent list for the Month of {m_name} {yr}"
         elif rtype == 'deduction':
-            d_name = deduction_rule.name.split('(')[0].strip() if deduction_rule else "Oil Deduction"
-            return f"Payroll Deduction ({d_name}) for the Month of {m_name} {yr}"
+            if deduction_rules and len(deduction_rules) == 1:
+                d_name = deduction_rules[0].name.split('(')[0].strip()
+                return f"Payroll Deduction ({d_name}) for the Month of {m_name} {yr}"
+            elif deduction_rules and len(deduction_rules) <= 3:
+                names = ", ".join([r.name.split('(')[0].strip() for r in deduction_rules])
+                return f"Payroll Deduction ({names}) for the Month of {m_name} {yr}"
+            return f"Payroll Deduction for the Month of {m_name} {yr}"
         else:
             return f"Payroll Statements for the Month of {m_name} {yr}"
 
@@ -248,9 +288,7 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
 
     def _get_overtime_data(self, slips):
         """
-        Calculates Overtime rows matching template image:
-        No., Name, salary, Normal Hour (Hour, Amount), Night Hour (Hour, Amount),
-        Weekend hour (Hour, Amount), Holiday Hour (Hour, Amount), Total
+        Calculates Overtime rows with optional column toggles
         """
         rows = []
         tot_salary = 0.0
@@ -270,17 +308,16 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
             contract = slip.contract_id
             salary = contract.wage if contract else (slip.wage or 0.0)
 
-            # Hours
-            norm_h = slip.ot_day_hours or 0.0
-            night_h = slip.ot_night_hours or 0.0
-            wk_h = slip.ot_weekend_hours or 0.0
-            hol_h = slip.ot_holiday_hours or 0.0
+            # Hours respecting toggles
+            norm_h = (slip.ot_day_hours or 0.0) if self.include_normal_ot else 0.0
+            night_h = (slip.ot_night_hours or 0.0) if self.include_night_ot else 0.0
+            wk_h = (slip.ot_weekend_hours or 0.0) if self.include_weekend_ot else 0.0
+            hol_h = (slip.ot_holiday_hours or 0.0) if self.include_holiday_ot else 0.0
             tot_h = norm_h + night_h + wk_h + hol_h
 
             if self.only_with_overtime and tot_h <= 0.0:
                 continue
 
-            # Rates & Calculations: 208 working hours standard
             work_hours = contract.monthly_working_hours or 208.0 if contract else 208.0
             base_hourly = (salary / work_hours) if work_hours else 0.0
             norm_rate = contract.ot_day_rate or (base_hourly * 1.5) if contract else (base_hourly * 1.5)
@@ -337,17 +374,26 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
 
     def _get_allowance_data(self, slips):
         """
-        Calculates Allowance rows matching template image:
-        No, Employee, Allowance [Acting, Indeminity Allowance, Service, transp repl, Untaxed Transportation Allowance], Total
+        Dynamically extracts allowances based on user-selected allowance_rule_ids,
+        or falls back to standard columns if none selected.
         """
-        # Column definitions matching user image
-        columns = [
-            {'key': 'acting', 'title': 'Acting', 'codes': ['ALW_ACTING_POSITION', 'ACTING', 'ACT']},
-            {'key': 'indemnity', 'title': 'Indeminity Allowance', 'codes': ['ALW_CASH_INDEMNITY', 'CASH_INDEMNITY', 'INDEMNITY']},
-            {'key': 'service', 'title': 'Service', 'codes': ['ALW_SERVICE', 'SERVICE_ALLOWANCE', 'DED_SERVICE_CHARGE']},
-            {'key': 'transp_repl', 'title': 'transp repl', 'codes': ['ALW_TRANSPORT_REPL', 'CA', 'CAGG', 'TRANS_REPL']},
-            {'key': 'untaxed_transp', 'title': 'Untaxed Transportation Allowance', 'codes': ['ALW_TRANSPORT', 'TTRA_EXEMPT', 'TRANSPORT', 'UNTAXED_TRANS']},
-        ]
+        if self.allowance_rule_ids:
+            columns = [
+                {
+                    'key': rule.code,
+                    'title': rule.name.split('(')[0].strip(),
+                    'codes': [rule.code],
+                }
+                for rule in self.allowance_rule_ids
+            ]
+        else:
+            columns = [
+                {'key': 'acting', 'title': 'Acting', 'codes': ['ALW_ACTING_POSITION', 'ACTING', 'ACT']},
+                {'key': 'indemnity', 'title': 'Indeminity Allowance', 'codes': ['ALW_CASH_INDEMNITY', 'CASH_INDEMNITY', 'INDEMNITY']},
+                {'key': 'service', 'title': 'Service', 'codes': ['ALW_SERVICE', 'SERVICE_ALLOWANCE', 'DED_SERVICE_CHARGE']},
+                {'key': 'transp_repl', 'title': 'transp repl', 'codes': ['ALW_TRANSPORT_REPL', 'CA', 'CAGG', 'TRANS_REPL']},
+                {'key': 'untaxed_transp', 'title': 'Untaxed Transportation Allowance', 'codes': ['ALW_TRANSPORT', 'TTRA_EXEMPT', 'TRANSPORT', 'UNTAXED_TRANS']},
+            ]
 
         rows = []
         col_totals = {col['key']: 0.0 for col in columns}
@@ -358,7 +404,6 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
             emp = slip.employee_id
             slip_rule_map = {line.code: line.total for line in slip.line_ids}
 
-            # Map amounts
             row_vals = {}
             row_sum = 0.0
             for col in columns:
@@ -366,13 +411,13 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
                 for c in col['codes']:
                     if c in slip_rule_map:
                         val += slip_rule_map[c]
-                # Also check contract fields if rule map had 0
+
                 if val == 0.0 and slip.contract_id:
-                    if col['key'] == 'acting' and hasattr(slip.contract_id, 'acting_allowance'):
+                    if col['key'] in ('acting', 'ALW_ACTING_POSITION') and hasattr(slip.contract_id, 'acting_allowance'):
                         val = getattr(slip.contract_id, 'acting_allowance') or 0.0
-                    elif col['key'] == 'indemnity' and hasattr(slip.contract_id, 'cash_indemnity'):
+                    elif col['key'] in ('indemnity', 'ALW_CASH_INDEMNITY') and hasattr(slip.contract_id, 'cash_indemnity'):
                         val = getattr(slip.contract_id, 'cash_indemnity') or 0.0
-                    elif col['key'] == 'untaxed_transp' and hasattr(slip.contract_id, 'transport_allowance'):
+                    elif col['key'] in ('untaxed_transp', 'ALW_TRANSPORT') and hasattr(slip.contract_id, 'transport_allowance'):
                         val = getattr(slip.contract_id, 'transport_allowance') or 0.0
 
                 row_vals[col['key']] = round(val, 2)
@@ -402,9 +447,8 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
 
     def _get_absent_data(self, slips):
         """
-        Calculates Absent rows matching template image:
-        No., Name, Basic salary, Absent days, Absent deduction
-        Deduction formula: (Basic salary / 26) * Absent days
+        Calculates Absent rows: No., Name, Basic salary, Absent days, Absent deduction
+        Formula: (Basic salary / 26) * Absent days
         """
         rows = []
         tot_salary = 0.0
@@ -417,12 +461,10 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
             contract = slip.contract_id
             basic_salary = contract.wage if contract else (slip.wage or 0.0)
 
-            # Absent days from payslip or sheets
             abs_days = slip.approved_absent_days or 0.0
             if abs_days == 0.0 and slip.approved_absent_hours:
                 abs_days = round(slip.approved_absent_hours / 8.0, 1)
 
-            # Deduction amount: check payslip line, or formula (salary / 26) * days
             if slip.absent_deduction_amount:
                 ded_amt = slip.absent_deduction_amount
             elif abs_days > 0:
@@ -455,41 +497,68 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
 
     def _get_deduction_data(self, slips):
         """
-        Calculates Deduction rows matching template image:
-        No, Employee, <Deduction Item Name>
+        Dynamically extracts deductions based on user-selected deduction_rule_ids.
+        If 1 rule selected (e.g. Oil Deduction), produces single deduction schedule.
+        If multiple rules selected, produces multi-column deduction schedule + Total.
         """
-        rule = self.deduction_rule_id
-        rule_code = rule.code if rule else 'DED_OIL'
-        rule_label = rule.name.split('(')[0].strip() if rule else 'Oil Deduction'
+        if self.deduction_rule_ids:
+            columns = [
+                {
+                    'key': rule.code,
+                    'title': rule.name.split('(')[0].strip(),
+                    'code': rule.code,
+                }
+                for rule in self.deduction_rule_ids
+            ]
+        else:
+            oil_rule = self.env['hr.salary.rule'].search([('code', '=', 'DED_OIL')], limit=1)
+            title = oil_rule.name.split('(')[0].strip() if oil_rule else 'Oil Deduction'
+            columns = [{'key': 'DED_OIL', 'title': title, 'code': 'DED_OIL'}]
 
+        is_single = len(columns) == 1
         rows = []
-        tot_amt = 0.0
+        col_totals = {col['key']: 0.0 for col in columns}
+        grand_total = 0.0
 
         idx = 1
         for slip in slips:
             emp = slip.employee_id
             slip_rule_map = {line.code: line.total for line in slip.line_ids}
-            amt = abs(slip_rule_map.get(rule_code, 0.0))
 
-            # If 0, check contract if available
-            if amt == 0.0 and slip.contract_id and hasattr(slip.contract_id, 'oil_deduction') and rule_code == 'DED_OIL':
-                amt = abs(getattr(slip.contract_id, 'oil_deduction') or 0.0)
+            row_vals = {}
+            row_sum = 0.0
+            for col in columns:
+                amt = abs(slip_rule_map.get(col['code'], 0.0))
+                if amt == 0.0 and slip.contract_id and col['code'] == 'DED_OIL' and hasattr(slip.contract_id, 'oil_deduction'):
+                    amt = abs(getattr(slip.contract_id, 'oil_deduction') or 0.0)
 
-            if amt <= 0.0:
+                row_vals[col['key']] = round(amt, 2)
+                row_sum += amt
+
+            if self.only_with_deduction and row_sum <= 0.0:
                 continue
 
             rows.append({
                 'no': idx,
                 'name': emp.name or '',
-                'amount': amt,
+                'values': row_vals,
+                'total': round(row_sum, 2),
+                'amount': row_vals[columns[0]['key']] if is_single else row_sum,
             })
-            tot_amt += amt
+
+            for col in columns:
+                col_totals[col['key']] += row_vals[col['key']]
+            grand_total += row_sum
             idx += 1
 
         return {
-            'rule_label': rule_label,
+            'is_single': is_single,
+            'columns': columns,
+            'rule_label': columns[0]['title'] if is_single else "Deductions",
             'rows': rows,
-            'tot_amt': tot_amt,
+            'col_totals': col_totals,
+            'grand_total': round(grand_total, 2),
+            'tot_amt': round(grand_total, 2),
         }
 
     # ---------------------------------------------------------
@@ -505,6 +574,11 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
         data = {
             'report_title': self.report_title,
             'report_type': self.report_type,
+            'attendance_report_type': self.attendance_report_type,
+            'include_normal_ot': self.include_normal_ot,
+            'include_night_ot': self.include_night_ot,
+            'include_weekend_ot': self.include_weekend_ot,
+            'include_holiday_ot': self.include_holiday_ot,
             'prepared_by': self.prepared_by or '',
             'checked_by': self.checked_by or '',
             'verified_by': self.verified_by or '',
@@ -512,7 +586,10 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
         }
 
         if self.report_type == 'overtime':
-            data['ot_data'] = self._get_overtime_data(slips)
+            if self.attendance_report_type in ('overtime', 'both'):
+                data['ot_data'] = self._get_overtime_data(slips)
+            if self.attendance_report_type in ('absent', 'both'):
+                data['abs_data'] = self._get_absent_data(slips)
         elif self.report_type == 'allowance':
             data['alw_data'] = self._get_allowance_data(slips)
         elif self.report_type == 'absent':
@@ -529,7 +606,7 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
         return report.report_action(self, data=data)
 
     def action_export_xlsx(self):
-        """ Generates and downloads professional Excel (.xlsx) report """
+        """ Generates and downloads Excel (.xlsx) report matching chosen categories & rules """
         self.ensure_one()
         slips = self._get_target_payslips()
         if not slips:
@@ -628,13 +705,7 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
             'font_name': 'Times New Roman',
             'valign': 'vcenter',
         })
-        fmt_sign_line = workbook.add_format({
-            'font_size': 10,
-            'font_name': 'Times New Roman',
-            'valign': 'vcenter',
-        })
 
-        # Helper to render signature footer
         def write_signatures(ws, row, last_col):
             row += 2
             col_gap = max(1, last_col // 4)
@@ -650,18 +721,16 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
                 c += col_gap
 
         # ----------------- OVERTIME SHEET -----------------
-        if self.report_type in ('overtime', 'all'):
+        if (self.report_type == 'overtime' and self.attendance_report_type in ('overtime', 'both')) or self.report_type == 'all':
             ws = workbook.add_worksheet('Overtime Report')
             ot_data = self._get_overtime_data(slips)
             rows = ot_data['rows']
             totals = ot_data['totals']
 
-            # Title
             ot_title = self.report_title if self.report_type == 'overtime' else f"Overtime done for the Month of {eth_utils.ETHIOPIAN_MONTHS_AMHARIC[int(self.ethiopian_month)]} {self.ethiopian_year}"
             ws.merge_range(1, 0, 1, 11, ot_title, fmt_title)
             ws.set_row(1, 30)
 
-            # Two-tier Headers
             ws.merge_range(3, 0, 4, 0, "No.", fmt_th)
             ws.merge_range(3, 1, 4, 1, "Name", fmt_th)
             ws.merge_range(3, 2, 4, 2, "salary", fmt_th)
@@ -695,7 +764,6 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
                 ws.write(r, 11, row['total'], fmt_td_num)
                 r += 1
 
-            # Grand Total Row
             ws.merge_range(r, 0, r, 1, "Total", fmt_tot_label)
             ws.write(r, 2, totals['tot_salary'], fmt_tot_num)
             ws.write(r, 3, totals['tot_norm_h'], fmt_tot_dec)
@@ -708,13 +776,11 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
             ws.write(r, 10, totals['tot_hol_amt'], fmt_tot_num)
             ws.write(r, 11, totals['tot_grand'], fmt_tot_num)
 
-            # Column widths
             ws.set_column(0, 0, 6)
             ws.set_column(1, 1, 24)
             ws.set_column(2, 2, 13)
             ws.set_column(3, 10, 11)
             ws.set_column(11, 11, 14)
-
             write_signatures(ws, r, 11)
 
         # ----------------- ALLOWANCE SHEET -----------------
@@ -749,7 +815,6 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
                 ws.write(r, 2 + num_cols, row['total'], fmt_td_num)
                 r += 1
 
-            # Total Row
             ws.merge_range(r, 0, r, 1, "Total", fmt_tot_label)
             for c_idx, col in enumerate(cols):
                 ws.write(r, 2 + c_idx, alw_data['col_totals'][col['key']], fmt_tot_num)
@@ -760,11 +825,10 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
             for c_idx in range(num_cols):
                 ws.set_column(2 + c_idx, 2 + c_idx, 16)
             ws.set_column(2 + num_cols, 2 + num_cols, 14)
-
             write_signatures(ws, r, 2 + num_cols)
 
         # ----------------- ABSENT SHEET -----------------
-        if self.report_type in ('absent', 'all'):
+        if (self.report_type == 'absent') or (self.report_type == 'overtime' and self.attendance_report_type in ('absent', 'both')) or self.report_type == 'all':
             ws = workbook.add_worksheet('Absent List')
             abs_data = self._get_absent_data(slips)
             rows = abs_data['rows']
@@ -799,43 +863,71 @@ class HrPayrollMonthlyReportWizard(models.TransientModel):
             ws.set_column(2, 2, 16)
             ws.set_column(3, 3, 14)
             ws.set_column(4, 4, 18)
-
             write_signatures(ws, r, 4)
 
         # ----------------- DEDUCTION SHEET -----------------
         if self.report_type in ('deduction', 'all'):
             ws = workbook.add_worksheet('Deduction Report')
             ded_data = self._get_deduction_data(slips)
+            cols = ded_data['columns']
             rows = ded_data['rows']
+            is_single = ded_data['is_single']
 
+            last_c = 2 if is_single else (1 + len(cols) + 1)
             ded_title = self.report_title if self.report_type == 'deduction' else f"Payroll Deduction for the Month of {eth_utils.ETHIOPIAN_MONTHS_AMHARIC[int(self.ethiopian_month)]} {self.ethiopian_year}"
-            ws.merge_range(1, 0, 1, 2, ded_title, fmt_title)
+            ws.merge_range(1, 0, 1, last_c, ded_title, fmt_title)
             ws.set_row(1, 30)
 
-            ws.write(3, 0, "No", fmt_th_highlight)
-            ws.write(3, 1, "Employee", fmt_th_highlight)
-            ws.write(3, 2, ded_data['rule_label'], fmt_th_highlight)
+            if is_single:
+                ws.write(3, 0, "No", fmt_th_highlight)
+                ws.write(3, 1, "Employee", fmt_th_highlight)
+                ws.write(3, 2, cols[0]['title'], fmt_th_highlight)
 
-            r = 4
-            for row in rows:
-                ws.write(r, 0, row['no'], fmt_td_center)
-                ws.write(r, 1, row['name'], fmt_td_name)
-                ws.write(r, 2, row['amount'], fmt_td_num)
-                r += 1
+                r = 4
+                for row in rows:
+                    ws.write(r, 0, row['no'], fmt_td_center)
+                    ws.write(r, 1, row['name'], fmt_td_name)
+                    ws.write(r, 2, row['amount'], fmt_td_num)
+                    r += 1
 
-            ws.merge_range(r, 0, r, 1, "Total", fmt_tot_label)
-            ws.write(r, 2, ded_data['tot_amt'], fmt_tot_num)
+                ws.merge_range(r, 0, r, 1, "Total", fmt_tot_label)
+                ws.write(r, 2, ded_data['tot_amt'], fmt_tot_num)
+                ws.set_column(0, 0, 6)
+                ws.set_column(1, 1, 28)
+                ws.set_column(2, 2, 18)
+                write_signatures(ws, r, 2)
+            else:
+                ws.merge_range(3, 0, 4, 0, "No", fmt_th_highlight)
+                ws.merge_range(3, 1, 4, 1, "Employee", fmt_th_highlight)
+                ws.merge_range(3, 2, 3, 1 + len(cols), "Deductions", fmt_th_highlight)
+                for c_idx, col in enumerate(cols):
+                    ws.write(4, 2 + c_idx, col['title'], fmt_th_highlight)
+                ws.merge_range(3, 2 + len(cols), 4, 2 + len(cols), "Total", fmt_th_highlight)
 
-            ws.set_column(0, 0, 6)
-            ws.set_column(1, 1, 28)
-            ws.set_column(2, 2, 18)
+                r = 5
+                for row in rows:
+                    ws.write(r, 0, row['no'], fmt_td_center)
+                    ws.write(r, 1, row['name'], fmt_td_name)
+                    for c_idx, col in enumerate(cols):
+                        ws.write(r, 2 + c_idx, row['values'][col['key']], fmt_td_num)
+                    ws.write(r, 2 + len(cols), row['total'], fmt_td_num)
+                    r += 1
 
-            write_signatures(ws, r, 2)
+                ws.merge_range(r, 0, r, 1, "Total", fmt_tot_label)
+                for c_idx, col in enumerate(cols):
+                    ws.write(r, 2 + c_idx, ded_data['col_totals'][col['key']], fmt_tot_num)
+                ws.write(r, 2 + len(cols), ded_data['grand_total'], fmt_tot_num)
+
+                ws.set_column(0, 0, 6)
+                ws.set_column(1, 1, 26)
+                for c_idx in range(len(cols)):
+                    ws.set_column(2 + c_idx, 2 + c_idx, 16)
+                ws.set_column(2 + len(cols), 2 + len(cols), 14)
+                write_signatures(ws, r, 2 + len(cols))
 
         workbook.close()
         xlsx_data = output.getvalue()
 
-        # Filename
         clean_name = self.report_title.replace('/', '-').replace(' ', '_').replace(':', '')
         filename = f"{clean_name}.xlsx"
 

@@ -28,3 +28,4 @@
         <field name="paperformat_id" ref="paperformat_monthly_payroll_landscape"/>
     </record>
 </odoo>
+

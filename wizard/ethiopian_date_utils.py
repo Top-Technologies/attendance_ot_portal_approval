@@ -74,3 +74,4 @@ def format_ethiopian_month_year(g_date):
     ey, em, _ = eth_date
     m_name = ETHIOPIAN_MONTHS_AMHARIC[em] if 1 <= em <= 13 else ''
     return f"{m_name} {ey}".strip()
+
