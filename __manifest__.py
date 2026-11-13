@@ -43,6 +43,9 @@ Key Features:
     'data': [
         'security/security.xml',
         'security/ir.model.access.csv',
+        'reports/overtime_report_views.xml',
+        'reports/monthly_payroll_report_templates.xml',
+        'wizard/hr_payroll_monthly_report_wizard_views.xml',
         'views/attendance_ot_sheet_views.xml',
         'views/hr_contract_views.xml',
         'views/hr_payslip_views.xml',

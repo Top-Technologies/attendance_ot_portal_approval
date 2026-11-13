@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Wizard Form View -->
+    <record id="view_hr_payroll_monthly_report_wizard_form" model="ir.ui.view">
+        <field name="name">hr.payroll.monthly.report.wizard.form</field>
+        <field name="model">hr.payroll.monthly.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Monthly Payroll Reports">
+                <sheet>
+                    <div class="oe_title mb-3">
+                        <h2><field name="report_title" readonly="0" placeholder="e.g. Overtime done for the Month of መስከረም 2019"/></h2>
+                    </div>
+
+                    <group>
+                        <group string="Report Configuration">
+                            <field name="report_type" widget="radio"/>
+                            <field name="deduction_rule_id" invisible="report_type not in ('deduction', 'all')" options="{'no_create': True}"/>
+                        </group>
+                        <group string="Target Period &amp; Ethiopian Calendar">
+                            <field name="filter_by" widget="radio"/>
+                            <field name="payslip_run_id" invisible="filter_by != 'batch'" required="filter_by == 'batch'" options="{'no_create': True}"/>
+                            <field name="date_from" invisible="filter_by == 'batch' and payslip_run_id"/>
+                            <field name="date_to" invisible="filter_by == 'batch' and payslip_run_id"/>
+                            <div class="o_row" colspan="2">
+                                <span class="fw-bold me-2">Ethiopian Period:</span>
+                                <field name="ethiopian_month" class="oe_inline me-2"/>
+                                <field name="ethiopian_year" class="oe_inline" placeholder="Year e.g. 2019"/>
+                            </div>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Filters &amp; Options" name="filters_page">
+                            <group>
+                                <group string="Organizational Filters">
+                                    <field name="company_id" options="{'no_create': True}"/>
+                                    <field name="employee_classification"/>
+                                    <field name="department_id" options="{'no_create': True}"/>
+                                </group>
+                                <group string="Display Thresholds">
+                                    <field name="only_with_overtime" invisible="report_type not in ('overtime', 'all')"/>
+                                    <field name="only_with_allowance" invisible="report_type not in ('allowance', 'all')"/>
+                                    <field name="only_with_absent" invisible="report_type not in ('absent', 'all')"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Approval Signatures (Footer)" name="signatures_page">
+                            <group>
+                                <group>
+                                    <field name="prepared_by" placeholder="e.g. Payroll Officer Name"/>
+                                    <field name="checked_by" placeholder="e.g. Finance Specialist Name"/>
+                                </group>
+                                <group>
+                                    <field name="verified_by" placeholder="e.g. HR / Finance Manager Name"/>
+                                    <field name="approved_by" placeholder="e.g. General Manager Name"/>
+                                </group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <footer>
+                    <button name="action_print_pdf" string="Print PDF Report" type="object" class="btn-primary" icon="fa-print"/>
+                    <button name="action_export_xlsx" string="Export Excel (.xlsx)" type="object" class="btn-success" icon="fa-file-excel-o"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- 1. Dedicated Action: Monthly Overtime Report -->
+    <record id="action_hr_payroll_overtime_report_wizard" model="ir.actions.act_window">
+        <field name="name">Monthly Overtime Report</field>
+        <field name="res_model">hr.payroll.monthly.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_report_type': 'overtime'}</field>
+    </record>
+
+    <!-- 2. Dedicated Action: Monthly Allowance Report -->
+    <record id="action_hr_payroll_allowance_report_wizard" model="ir.actions.act_window">
+        <field name="name">Monthly Allowance Report</field>
+        <field name="res_model">hr.payroll.monthly.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_report_type': 'allowance'}</field>
+    </record>
+
+    <!-- 3. Dedicated Action: Monthly Absent List Report -->
+    <record id="action_hr_payroll_absent_report_wizard" model="ir.actions.act_window">
+        <field name="name">Monthly Absent List Report</field>
+        <field name="res_model">hr.payroll.monthly.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_report_type': 'absent'}</field>
+    </record>
+
+    <!-- 4. Dedicated Action: Monthly Deduction Report -->
+    <record id="action_hr_payroll_deduction_report_wizard" model="ir.actions.act_window">
+        <field name="name">Monthly Deduction Report</field>
+        <field name="res_model">hr.payroll.monthly.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_report_type': 'deduction'}</field>
+    </record>
+
+    <!-- 5. Action Binding on Payslip Batches (hr.payslip.run) -->
+    <record id="action_payslip_run_overtime_report" model="ir.actions.act_window">
+        <field name="name">Overtime Report</field>
+        <field name="res_model">hr.payroll.monthly.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="hr_payroll.model_hr_payslip_run"/>
+        <field name="binding_type">action</field>
+        <field name="context">{'default_report_type': 'overtime'}</field>
+    </record>
+
+    <record id="action_payslip_run_monthly_statements" model="ir.actions.act_window">
+        <field name="name">Monthly Statements (Overtime, Allowance, Absent, Deductions)</field>
+        <field name="res_model">hr.payroll.monthly.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="hr_payroll.model_hr_payslip_run"/>
+        <field name="binding_type">action</field>
+        <field name="context">{'default_report_type': 'all'}</field>
+    </record>
+
+    <!-- Menus under Payroll > Reporting -->
+    <menuitem id="menu_hr_payroll_overtime_report"
+              name="Monthly Overtime Report"
+              parent="hr_payroll.menu_hr_payroll_report"
+              action="action_hr_payroll_overtime_report_wizard"
+              sequence="31"/>
+
+    <menuitem id="menu_hr_payroll_allowance_report"
+              name="Monthly Allowance Report"
+              parent="hr_payroll.menu_hr_payroll_report"
+              action="action_hr_payroll_allowance_report_wizard"
+              sequence="32"/>
+
+    <menuitem id="menu_hr_payroll_absent_report"
+              name="Monthly Absent List Report"
+              parent="hr_payroll.menu_hr_payroll_report"
+              action="action_hr_payroll_absent_report_wizard"
+              sequence="33"/>
+
+    <menuitem id="menu_hr_payroll_deduction_report"
+              name="Monthly Deduction Report"
+              parent="hr_payroll.menu_hr_payroll_report"
+              action="action_hr_payroll_deduction_report_wizard"
+              sequence="34"/>
+
+</odoo>
